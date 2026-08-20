@@ -1,0 +1,1581 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IS Validation Dashboard</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+
+    <style>
+        :root {
+            --valeo-green: #78c800;
+            --valeo-dark: #002b49;
+            --valeo-grey: #6c757d;
+            --c-overdue: #dc3545;
+            --c-critical: #fd7e14;
+            --c-stale: #6f42c1;
+            --bg-color: #f4f7f6;
+        }
+        body { background-color: var(--bg-color); font-family: 'Segoe UI', Tahoma, sans-serif; color: #333; overflow-x: hidden; }
+
+        /* ---------- Splash ---------- */
+        #splash-screen {
+            position: fixed; inset: 0;
+            background: linear-gradient(135deg, #ffffff 0%, #e8f5e9 100%);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 9999;
+        }
+        .splash-logo { color: var(--valeo-green); font-size: clamp(2.5rem, 9vw, 5rem); font-weight: 900; font-style: italic; text-shadow: 0 0 15px rgba(120,200,0,.3); }
+        .progress-container { width: min(350px, 80vw); height: 6px; background: #ddd; border-radius: 10px; overflow: hidden; margin-top: 20px; }
+        .progress-bar-custom { height: 100%; width: 0; background-color: var(--valeo-green); animation: load 1.2s ease-out forwards; }
+        @keyframes load { from { width: 0 } to { width: 100% } }
+        .splash-hint { margin-top: 14px; font-size: .85rem; color: var(--valeo-grey); }
+
+        /* ---------- Navbar ---------- */
+        .top-navbar { background: #fff; padding: 12px 22px; box-shadow: 0 2px 10px rgba(0,0,0,.05); display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+        .top-navbar h2 { margin: 0; font-weight: 800; color: var(--valeo-dark); font-style: italic; font-size: 1.5rem; }
+        .top-navbar h2 span { color: var(--valeo-green); }
+        .meta-line { font-size: .72rem; color: var(--valeo-grey); }
+        .meta-line .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--valeo-green); margin-right: 5px; }
+        .lang-switch .btn { font-weight: 700; padding: 2px 9px; font-size: .75rem; }
+
+        /* ---------- Cards ---------- */
+        .box-card { background: #fff; border-radius: 12px; padding: 18px; margin-bottom: 18px; box-shadow: 0 4px 15px rgba(0,0,0,.04); }
+        .filter-label { font-size: .72rem; font-weight: 700; color: #888; text-transform: uppercase; margin-bottom: 5px; letter-spacing: .3px; }
+        .section-title { font-size: .8rem; font-weight: 800; color: var(--valeo-dark); text-transform: uppercase; letter-spacing: .4px; }
+
+        /* ---------- Executive alerts ---------- */
+        #alert-strip { display: flex; flex-wrap: wrap; gap: 10px; }
+        .alert-pill { border: none; border-radius: 10px; padding: 10px 15px; font-size: .82rem; font-weight: 600; display: flex; align-items: center; gap: 9px; cursor: pointer; transition: transform .15s, box-shadow .15s; text-align: left; }
+        .alert-pill:hover { transform: translateY(-2px); box-shadow: 0 5px 14px rgba(0,0,0,.10); }
+        .alert-pill .n { font-size: 1.2rem; font-weight: 900; }
+        .ap-critical { background: #fff4e5; color: #8a4b00; border-left: 4px solid var(--c-critical); }
+        .ap-overdue  { background: #fdecea; color: #8a1c22; border-left: 4px solid var(--c-overdue); }
+        .ap-stale    { background: #f3edfb; color: #4a2a7a; border-left: 4px solid var(--c-stale); }
+        .ap-order    { background: #e8f1fb; color: #0b3d70; border-left: 4px solid #0d6efd; }
+        .ap-quality  { background: #eef1f4; color: #43505c; border-left: 4px solid var(--valeo-grey); }
+        .ap-clear    { background: #e7f6e7; color: #24601f; border-left: 4px solid var(--valeo-green); cursor: default; }
+        .ap-clear:hover { transform: none; box-shadow: none; }
+
+        /* ---------- KPI ---------- */
+        .kpi-card { border-top: 4px solid transparent; text-align: center; cursor: pointer; transition: transform .2s, box-shadow .2s; padding: 14px 8px; height: 100%; margin-bottom: 0; }
+        .kpi-card:hover { transform: translateY(-4px); box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+        .kpi-card.active-kpi { outline: 3px solid #0d6efd; outline-offset: -3px; background: #f8fbff; }
+        .kpi-title { font-size: .7rem; font-weight: 700; color: var(--valeo-dark); text-transform: uppercase; margin-bottom: 6px; line-height: 1.25; }
+        .kpi-value { font-size: 1.9rem; font-weight: 900; margin: 0; line-height: 1.1; }
+        .kpi-sub { font-size: .68rem; color: var(--valeo-grey); margin-top: 2px; min-height: 14px; }
+        .kpi-total   { border-top-color: var(--valeo-green); color: var(--valeo-green); }
+        .kpi-done    { border-top-color: #0d6efd; color: #0d6efd; }
+        .kpi-pending { border-top-color: #ffc107; color: #d39e00; }
+        .kpi-cancel  { border-top-color: var(--valeo-grey); color: var(--valeo-grey); }
+        .kpi-overdue { border-top-color: var(--c-overdue); color: var(--c-overdue); background: #fff7f7; }
+        .kpi-critical{ border-top-color: var(--c-critical); color: var(--c-critical); background: #fffaf3; }
+
+        /* ---------- Charts ---------- */
+        .gauge-container { height: 190px; width: 100%; }
+        .donut-container { height: 285px; width: 100%; }
+        .chart-md { height: 300px; width: 100%; }
+        .chart-sm { height: 260px; width: 100%; }
+        .gauge-target { font-size: .68rem; color: var(--valeo-grey); }
+
+        /* ---------- Table ---------- */
+        .table-responsive { max-height: 620px; overflow-y: auto; }
+        .table thead th { position: sticky; top: 0; background-color: var(--valeo-dark); color: #fff; font-size: .78rem; z-index: 2; white-space: nowrap; }
+        .table thead th.sortable { cursor: pointer; user-select: none; }
+        .table thead th.sortable:hover { background-color: #013a61; }
+        .table thead th .sort-ico { opacity: .45; margin-left: 4px; font-size: .7rem; }
+        .table thead th.sorted .sort-ico { opacity: 1; color: var(--valeo-green); }
+        .table tbody td { font-size: .82rem; vertical-align: middle; }
+        .table tbody tr { cursor: pointer; }
+        .row-done, .row-done td { background-color: #d1e7dd !important; color: #0a3622 !important; border-bottom-color: #badbcc !important; font-weight: 500; }
+        .row-overdue, .row-overdue td { background-color: #fdecea !important; }
+        .row-critical, .row-critical td { background-color: #fff4e5 !important; }
+        .row-cancel td { color: #98a2ab !important; text-decoration-color: #98a2ab; }
+        .bottleneck-text { font-weight: 600; font-size: .82rem; }
+        .cell-days { font-weight: 700; white-space: nowrap; }
+        .empty-state { text-align: center; padding: 45px 15px; color: var(--valeo-grey); }
+        .empty-state i { font-size: 2.2rem; opacity: .35; display: block; margin-bottom: 10px; }
+
+        /* ---------- Data quality ---------- */
+        .quality-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 4px; border-bottom: 1px dashed #e6ebef; font-size: .82rem; cursor: pointer; }
+        .quality-item:last-child { border-bottom: none; }
+        .quality-item:hover { background: #f8fbff; }
+        .quality-item .badge { min-width: 42px; }
+
+        /* ---------- Error ---------- */
+        #error-panel { display: none; }
+        .error-box { border-left: 5px solid var(--c-overdue); }
+
+        #main-dashboard { display: none; }
+
+        @media (max-width: 767px) {
+            .kpi-value { font-size: 1.5rem; }
+            .top-navbar { padding: 10px 14px; }
+        }
+
+        @media print {
+            body { background: #fff; }
+            .no-print, .top-navbar .btn, #alert-strip, .table-responsive { box-shadow: none !important; }
+            .no-print { display: none !important; }
+            .box-card { box-shadow: none; border: 1px solid #dee2e6; page-break-inside: avoid; }
+            .table-responsive { max-height: none; overflow: visible; }
+            .table thead th { background-color: #002b49 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .row-done td, .row-overdue td, .row-critical td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="splash-screen">
+        <div class="splash-logo">IS Validation</div>
+        <div class="progress-container"><div class="progress-bar-custom"></div></div>
+        <div class="splash-hint" id="splash-hint">Veriler yükleniyor...</div>
+    </div>
+
+    <div id="error-panel" class="container-fluid px-4 pt-4">
+        <div class="box-card error-box">
+            <h5 class="fw-bold text-danger mb-2"><i class="fas fa-triangle-exclamation"></i> <span data-i18n="errTitle">Veri yüklenemedi</span></h5>
+            <p class="mb-1" id="error-message"></p>
+            <p class="small text-muted" id="error-detail"></p>
+            <button class="btn btn-sm btn-danger mt-2" onclick="refreshData()"><i class="fas fa-rotate-right"></i> <span data-i18n="errRetry">Tekrar Dene</span></button>
+        </div>
+    </div>
+
+    <div id="main-dashboard">
+
+        <!-- ============ NAVBAR ============ -->
+        <div class="top-navbar no-print">
+            <div>
+                <h2><span>IS</span> DASHBOARD</h2>
+                <div class="meta-line"><span class="dot"></span><span data-i18n="lastUpdate">Son güncelleme</span>: <span id="meta-updated">—</span> · <span id="meta-rows">0</span> <span data-i18n="records">kayıt</span><span id="meta-cached"></span></div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <div class="btn-group lang-switch" role="group">
+                    <button type="button" class="btn btn-outline-dark" id="lang-tr" onclick="setLang('tr')">TR</button>
+                    <button type="button" class="btn btn-outline-dark" id="lang-en" onclick="setLang('en')">EN</button>
+                </div>
+                <select class="form-select form-select-sm" style="width:auto" id="auto-refresh" onchange="setAutoRefresh()" data-i18n-title="navAuto">
+                    <option value="0" data-i18n="autoOff">Otomatik yenileme: Kapalı</option>
+                    <option value="5" data-i18n="auto5">Her 5 dakikada</option>
+                    <option value="15" data-i18n="auto15">Her 15 dakikada</option>
+                    <option value="30" data-i18n="auto30">Her 30 dakikada</option>
+                </select>
+                <button class="btn btn-outline-primary btn-sm" onclick="refreshData()"><i class="fas fa-sync-alt"></i> <span data-i18n="navRefresh">Yenile</span></button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="resetFilters()"><i class="fas fa-undo"></i> <span data-i18n="navReset">Sıfırla</span></button>
+                <button class="btn btn-outline-success btn-sm" onclick="exportCsv()"><i class="fas fa-file-csv"></i> <span data-i18n="navExport">Excel'e Aktar</span></button>
+                <button class="btn btn-outline-dark btn-sm" onclick="window.print()"><i class="fas fa-print"></i> <span data-i18n="navPrint">Yazdır</span></button>
+            </div>
+        </div>
+
+        <div class="container-fluid px-4">
+
+            <!-- ============ EXECUTIVE ALERTS ============ -->
+            <div class="box-card">
+                <div class="section-title mb-2"><i class="fas fa-bullhorn"></i> <span data-i18n="alertTitle">Yönetici Özeti — Bugün Aksiyon Gereken</span></div>
+                <div id="alert-strip"></div>
+            </div>
+
+            <!-- ============ FILTERS ============ -->
+            <div class="box-card row g-3 align-items-end no-print">
+                <div class="col-6 col-md-4 col-lg-2">
+                    <div class="filter-label" data-i18n="fStatus">Status</div>
+                    <select class="form-select form-select-sm" id="filter-status" onchange="applyFilters()">
+                        <option value="all" data-i18n="all">Tümü</option>
+                        <option value="DONE" data-i18n="optDone">Tamamlanan</option>
+                        <option value="PENDING" data-i18n="optPending">Bekleyen</option>
+                        <option value="CANCEL" data-i18n="optCancel">İptal Edilen</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-4 col-lg-2">
+                    <div class="filter-label" data-i18n="fType">Type</div>
+                    <select class="form-select form-select-sm" id="filter-type" onchange="applyFilters()"></select>
+                </div>
+                <div class="col-6 col-md-4 col-lg-2">
+                    <div class="filter-label" data-i18n="fYear">Year</div>
+                    <select class="form-select form-select-sm" id="filter-year" onchange="applyFilters()"></select>
+                </div>
+                <div class="col-6 col-md-4 col-lg-2" id="wrap-owner" style="display:none">
+                    <div class="filter-label" data-i18n="fOwner">Sorumlu</div>
+                    <select class="form-select form-select-sm" id="filter-owner" onchange="applyFilters()"></select>
+                </div>
+                <div class="col-6 col-md-4 col-lg-2" id="wrap-customer" style="display:none">
+                    <div class="filter-label" data-i18n="fCustomer">Müşteri</div>
+                    <select class="form-select form-select-sm" id="filter-customer" onchange="applyFilters()"></select>
+                </div>
+                <div class="col-6 col-md-4 col-lg-2">
+                    <div class="filter-label" data-i18n="fEdi">EDI Availability</div>
+                    <select class="form-select form-select-sm" id="filter-edi" onchange="applyFilters()">
+                        <option value="all" data-i18n="all">Tümü</option>
+                        <option value="EU_YES">EU: YES</option>
+                        <option value="VST_YES">VST: YES</option>
+                        <option value="BOTH_NO" data-i18n="ediNone">İkisi de YES değil</option>
+                    </select>
+                </div>
+                <div class="col-12 col-lg-4">
+                    <div class="filter-label" data-i18n="fSearch">Hızlı Arama (Ref / Proje / Sorumlu)</div>
+                    <input type="text" id="search-box" class="form-control form-control-sm" data-i18n-ph="fSearchPh" placeholder="Arama yapın..." oninput="debouncedFilter()">
+                </div>
+            </div>
+
+            <!-- ============ KPI ============ -->
+            <div class="row g-3 mb-1" id="kpi-row">
+                <div class="col-6 col-md-4 col-xl-2">
+                    <div class="box-card kpi-card kpi-total active-kpi" id="card-all" onclick="setKpiFilter('all')">
+                        <div class="kpi-title" data-i18n="kpiTotal">Toplam Proje</div>
+                        <div class="kpi-value" id="kpi-total">0</div>
+                        <div class="kpi-sub" id="kpi-total-sub"></div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-4 col-xl-2">
+                    <div class="box-card kpi-card kpi-done" id="card-done" onclick="setKpiFilter('DONE')">
+                        <div class="kpi-title" data-i18n="kpiDone">Tamamlanan</div>
+                        <div class="kpi-value" id="kpi-done">0</div>
+                        <div class="kpi-sub" id="kpi-done-sub"></div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-4 col-xl-2">
+                    <div class="box-card kpi-card kpi-pending" id="card-pending" onclick="setKpiFilter('PENDING')">
+                        <div class="kpi-title" data-i18n="kpiPending">Bekleyen</div>
+                        <div class="kpi-value" id="kpi-pending">0</div>
+                        <div class="kpi-sub" id="kpi-pending-sub"></div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-4 col-xl-2">
+                    <div class="box-card kpi-card kpi-cancel" id="card-cancel" onclick="setKpiFilter('CANCEL')">
+                        <div class="kpi-title" data-i18n="kpiCancel">İptal Edilen</div>
+                        <div class="kpi-value" id="kpi-cancel">0</div>
+                        <div class="kpi-sub" id="kpi-cancel-sub"></div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-4 col-xl-2">
+                    <div class="box-card kpi-card kpi-overdue" id="card-overdue" onclick="setKpiFilter('OVERDUE')">
+                        <div class="kpi-title"><i class="fas fa-exclamation-triangle"></i> <span data-i18n="kpiOverdue">Geciken</span></div>
+                        <div class="kpi-value" id="kpi-overdue">0</div>
+                        <div class="kpi-sub" id="kpi-overdue-sub"></div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-4 col-xl-2">
+                    <div class="box-card kpi-card kpi-critical" id="card-critical" onclick="setKpiFilter('CRITICAL')">
+                        <div class="kpi-title"><i class="fas fa-stopwatch"></i> <span data-i18n="kpiCritical">Kritik (7 Gün)</span></div>
+                        <div class="kpi-value" id="kpi-critical">0</div>
+                        <div class="kpi-sub" id="kpi-critical-sub"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============ CHARTS ROW 1 ============ -->
+            <div class="row">
+                <div class="col-lg-4">
+                    <div class="box-card">
+                        <div class="section-title text-center mb-1" data-i18n="chStatus">Durum Dağılımı</div>
+                        <div id="donutChart" class="donut-container"></div>
+                    </div>
+                </div>
+                <div class="col-lg-8">
+                    <div class="box-card">
+                        <div class="section-title text-center mb-2" data-i18n="chProgress">Performans Göstergeleri</div>
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <div id="gaugeDone" class="gauge-container"></div>
+                                <strong class="small text-muted d-block" data-i18n="chCompletion">Tamamlama Oranı</strong>
+                                <span class="gauge-target" id="target-done"></span>
+                            </div>
+                            <div class="col-4">
+                                <div id="gaugePending" class="gauge-container"></div>
+                                <strong class="small text-muted d-block" data-i18n="chPending">Bekleme Oranı</strong>
+                                <span class="gauge-target" id="target-pending"></span>
+                            </div>
+                            <div class="col-4">
+                                <div id="gaugeCancel" class="gauge-container"></div>
+                                <strong class="small text-muted d-block" data-i18n="chCancel">İptal Oranı</strong>
+                                <span class="gauge-target" id="target-cancel"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============ CHARTS ROW 2 ============ -->
+            <div class="row">
+                <div class="col-lg-8">
+                    <div class="box-card">
+                        <div class="section-title mb-1"><i class="fas fa-chart-line"></i> <span id="trend-title" data-i18n="chTrendYear">Yıl Bazında Portföy Gelişimi</span></div>
+                        <div class="small text-muted mb-2" id="trend-note"></div>
+                        <div id="trendChart" class="chart-md"></div>
+                    </div>
+                </div>
+                <div class="col-lg-4">
+                    <div class="box-card">
+                        <div class="section-title mb-1"><i class="fas fa-hourglass-half"></i> <span data-i18n="chAging">Bekleyen İşlerin Yaşı</span></div>
+                        <div class="small text-muted mb-2" data-i18n="chAgingNote">Açılışından bu yana geçen gün</div>
+                        <div id="agingChart" class="chart-md"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============ CHARTS ROW 3 ============ -->
+            <div class="row">
+                <div class="col-lg-6" id="wrap-type-chart">
+                    <div class="box-card">
+                        <div class="section-title mb-2"><i class="fas fa-layer-group"></i> <span data-i18n="chType">Tip Bazında Tamamlama</span></div>
+                        <div id="typeChart" class="chart-sm"></div>
+                    </div>
+                </div>
+                <div class="col-lg-6" id="wrap-owner-chart" style="display:none">
+                    <div class="box-card">
+                        <div class="section-title mb-2"><i class="fas fa-user-gear"></i> <span data-i18n="chOwner">Sorumlu Bazında İş Yükü</span></div>
+                        <div id="ownerChart" class="chart-sm"></div>
+                    </div>
+                </div>
+                <div class="col-lg-6" id="wrap-customer-chart" style="display:none">
+                    <div class="box-card">
+                        <div class="section-title mb-2"><i class="fas fa-building"></i> <span data-i18n="chCustomer">Müşteri Bazında Dağılım</span></div>
+                        <div id="customerChart" class="chart-sm"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============ DATA QUALITY ============ -->
+            <div class="box-card">
+                <div class="d-flex justify-content-between align-items-center" style="cursor:pointer" onclick="toggleQuality()">
+                    <div class="section-title mb-0"><i class="fas fa-clipboard-check"></i> <span data-i18n="qTitle">Veri Kalitesi Kontrolü</span></div>
+                    <div><span class="badge bg-secondary me-2" id="quality-count">0</span><i class="fas fa-chevron-down" id="quality-chevron"></i></div>
+                </div>
+                <div id="quality-body" class="mt-3" style="display:none"></div>
+            </div>
+
+            <!-- ============ TABLE ============ -->
+            <div class="box-card mb-5">
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <h5 class="fw-bold m-0" style="color: var(--valeo-dark);" data-i18n="tblTitle">Filtrelenmiş Proje Listesi</h5>
+                    <div>
+                        <span class="badge bg-info text-dark me-1" id="active-filter-badge" style="display:none"></span>
+                        <span class="badge bg-secondary" id="list-count">0</span>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover table-bordered mb-0">
+                        <thead><tr id="table-head"></tr></thead>
+                        <tbody id="table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ DETAIL MODAL ============ -->
+    <div class="modal fade" id="detailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header" style="background: var(--valeo-dark); color:#fff;">
+                    <h5 class="modal-title"><i class="fas fa-circle-info"></i> <span id="detail-title">—</span></h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="detail-body"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ CSV FALLBACK MODAL ============ -->
+    <div class="modal fade" id="csvModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title" data-i18n="csvTitle">CSV Verisi</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <p class="small text-muted" data-i18n="csvHint">Otomatik indirme engellendi. Aşağıdaki metni kopyalayıp bir .csv dosyasına yapıştırabilirsiniz.</p>
+                    <textarea class="form-control" id="csv-text" rows="12" style="font-family:monospace;font-size:.75rem"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+/* =============================================================================
+ *  IS VALIDATION DASHBOARD — İSTEMCİ TARAFI / CLIENT SIDE
+ *  Bölümler: 1) i18n  2) Durum  3) Yardımcılar  4) Veri  5) Türetilmiş alanlar
+ *            6) Filtreler  7) KPI & Uyarılar  8) Grafikler  9) Veri kalitesi
+ *            10) Tablo  11) Dışa aktarım
+ * ========================================================================== */
+
+/* ---------------------------------------------------------------- 1) i18n -- */
+const I18N = {
+  tr: {
+    all: 'Tümü', records: 'kayıt', days: 'gün', target: 'Hedef',
+    lastUpdate: 'Son güncelleme', cachedTag: ' · önbellekten',
+    loading: 'Veriler yükleniyor...',
+    navRefresh: 'Yenile', navReset: 'Sıfırla', navExport: "Excel'e Aktar", navPrint: 'Yazdır',
+    navAuto: 'Otomatik yenileme', autoOff: 'Otomatik yenileme: Kapalı',
+    auto5: 'Her 5 dakikada', auto15: 'Her 15 dakikada', auto30: 'Her 30 dakikada',
+
+    errTitle: 'Veri yüklenemedi', errRetry: 'Tekrar Dene',
+
+    alertTitle: 'Yönetici Özeti — Bugün Aksiyon Gereken',
+    alertClear: 'Aksiyon gerektiren kayıt yok. Portföy kontrol altında.',
+    alertCritical: 'proje sevkiyata {n} günden az kaldı',
+    alertOverdue: 'proje termini geçti',
+    alertStale: 'proje {n}+ gündür hareketsiz',
+    alertOrder: 'projede sipariş (Order) bilgisi eksik',
+    alertQuality: 'kayıtta veri eksikliği var',
+
+    fStatus: 'Status', fType: 'Type', fYear: 'Year', fEdi: 'EDI Availability',
+    fOwner: 'Sorumlu', fCustomer: 'Müşteri',
+    fSearch: 'Hızlı Arama (Ref / Proje / Sorumlu)', fSearchPh: 'Arama yapın...',
+    optDone: 'Tamamlanan (Done)', optPending: 'Bekleyen (Pending)', optCancel: 'İptal Edilen (Cancel)',
+    ediNone: 'İkisi de YES değil',
+
+    kpiTotal: 'Toplam Proje', kpiDone: 'Tamamlanan', kpiPending: 'Bekleyen',
+    kpiCancel: 'İptal Edilen', kpiOverdue: 'Geciken', kpiCritical: 'Kritik (7 Gün)',
+    subOfTotal: 'toplamın %{n}', subCycle: 'ort. {n} gün çevrim', subOldest: 'en eskisi {n} gün',
+    subStale: '{n} adet {d}+ gün', subNone: '—',
+
+    chStatus: 'Durum Dağılımı', chProgress: 'Performans Göstergeleri',
+    chCompletion: 'Tamamlama Oranı', chPending: 'Bekleme Oranı', chCancel: 'İptal Oranı',
+    chTrendYear: 'Yıl Bazında Portföy Gelişimi', chTrendMonth: 'Aylık Akış (Son 12 Ay)',
+    chTrendNoteYear: 'Tarih kolonu bulunamadığı için yıl bazında gösteriliyor.',
+    chTrendNoteMonth: 'Açılış tarihine göre gruplanmıştır.',
+    chAging: 'Bekleyen İşlerin Yaşı', chAgingNote: 'Açılışından bu yana geçen gün',
+    chType: 'Tip Bazında Tamamlama', chOwner: 'Sorumlu Bazında İş Yükü',
+    chCustomer: 'Müşteri Bazında Dağılım',
+    chNoData: 'Gösterilecek veri yok',
+    chartsOffline: 'Grafik kütüphanesine (CDN) erişilemedi. Tablo ve KPI\'lar çalışmaya devam ediyor.',
+    sDone: 'Tamamlanan', sPending: 'Bekleyen', sCancel: 'İptal', sOpened: 'Açılan',
+    sRate: 'Tamamlama %', sUnknown: 'Bilinmiyor',
+
+    qTitle: 'Veri Kalitesi Kontrolü', qClean: 'Filtrelenen kayıtlarda veri eksikliği bulunamadı.',
+    qNoYear: 'Yıl (Year) bilgisi boş', qNoStatus: 'Status bilgisi boş',
+    qBadShip: 'Sevkiyat tarihi okunamıyor (format hatalı)', qNoShip: 'Bekleyen kayıtta sevkiyat tarihi yok',
+    qNoOrder: 'Bekleyen kayıtta Order boş / TBD', qDupRef: 'Mükerrer Bursa Ref',
+    qShowAll: 'Tüm kayıtlara dön',
+
+    tblTitle: 'Filtrelenmiş Proje Listesi',
+    thYear: 'Yıl', thRef: 'Bursa Ref', thProject: 'Proje Adı', thOwner: 'Sorumlu',
+    thIs: 'IS Status', thOrder: 'Order', thShip: 'İlk Sevkiyat', thDays: 'Kalan Gün',
+    thAge: 'Yaş', thEdi: 'EDI EU/VST', thBottleneck: 'Genel Durum / Darboğaz',
+    emptyRows: 'Seçilen filtrelerle eşleşen kayıt yok.',
+
+    bDone: 'Süreç Tamamlandı', bCancel: 'İptal Edildi',
+    bWaiting: '{step} Bekleniyor', bOrder: 'Sipariş (Order/EDI) Bekliyor',
+    bShipDays: 'Sevkiyata son {n} gün', bShipToday: 'Sevkiyat Bugün!',
+    bShipLate: 'Sevkiyat Gecikti ({n} gün)', bShipStage: 'Sevkiyat Aşamasında ({v})',
+    bProcessing: 'İşlemde', isValidation: 'IS Validation',
+    badgeOverdue: 'GECİKTİ', badgeCritical: 'KRİTİK', badgeStale: 'TIKANDI',
+    tipOverdue: 'Termini geçmiş bekleyen proje', tipStale: 'Uzun süredir hareketsiz',
+
+    mTitle: 'Proje Detayı', mSheetRow: 'Sheet satırı',
+    csvTitle: 'CSV Verisi', csvHint: 'Otomatik indirme engellendi. Aşağıdaki metni kopyalayıp bir .csv dosyasına yapıştırabilirsiniz.',
+    filterTag: 'Aktif kırılım'
+  },
+  en: {
+    all: 'All', records: 'records', days: 'days', target: 'Target',
+    lastUpdate: 'Last update', cachedTag: ' · from cache',
+    loading: 'Loading data...',
+    navRefresh: 'Refresh', navReset: 'Reset', navExport: 'Export to Excel', navPrint: 'Print',
+    navAuto: 'Auto refresh', autoOff: 'Auto refresh: Off',
+    auto5: 'Every 5 minutes', auto15: 'Every 15 minutes', auto30: 'Every 30 minutes',
+
+    errTitle: 'Data could not be loaded', errRetry: 'Try Again',
+
+    alertTitle: 'Executive Summary — Requires Action Today',
+    alertClear: 'No item requires action. Portfolio under control.',
+    alertCritical: 'projects ship in less than {n} days',
+    alertOverdue: 'projects past their due date',
+    alertStale: 'projects idle for {n}+ days',
+    alertOrder: 'projects missing Order information',
+    alertQuality: 'records with data gaps',
+
+    fStatus: 'Status', fType: 'Type', fYear: 'Year', fEdi: 'EDI Availability',
+    fOwner: 'Owner', fCustomer: 'Customer',
+    fSearch: 'Quick search (Ref / Project / Owner)', fSearchPh: 'Search...',
+    optDone: 'Completed (Done)', optPending: 'Pending', optCancel: 'Cancelled',
+    ediNone: 'Neither is YES',
+
+    kpiTotal: 'Total Projects', kpiDone: 'Completed', kpiPending: 'Pending',
+    kpiCancel: 'Cancelled', kpiOverdue: 'Overdue', kpiCritical: 'Critical (7 Days)',
+    subOfTotal: '{n}% of total', subCycle: 'avg. {n} days cycle', subOldest: 'oldest {n} days',
+    subStale: '{n} over {d} days', subNone: '—',
+
+    chStatus: 'Status Breakdown', chProgress: 'Performance Indicators',
+    chCompletion: 'Completion Rate', chPending: 'Pending Rate', chCancel: 'Cancellation Rate',
+    chTrendYear: 'Portfolio Evolution by Year', chTrendMonth: 'Monthly Flow (Last 12 Months)',
+    chTrendNoteYear: 'No date column detected — displayed by year.',
+    chTrendNoteMonth: 'Grouped by creation date.',
+    chAging: 'Age of Pending Items', chAgingNote: 'Days elapsed since opening',
+    chType: 'Completion by Type', chOwner: 'Workload by Owner',
+    chCustomer: 'Breakdown by Customer',
+    chNoData: 'No data to display',
+    chartsOffline: 'Chart library (CDN) unreachable. Table and KPIs remain functional.',
+    sDone: 'Done', sPending: 'Pending', sCancel: 'Cancelled', sOpened: 'Opened',
+    sRate: 'Completion %', sUnknown: 'Unknown',
+
+    qTitle: 'Data Quality Check', qClean: 'No data gaps found in the filtered records.',
+    qNoYear: 'Year is empty', qNoStatus: 'Status is empty',
+    qBadShip: 'Shipment date unreadable (bad format)', qNoShip: 'Pending record without shipment date',
+    qNoOrder: 'Pending record with empty / TBD Order', qDupRef: 'Duplicate Bursa Ref',
+    qShowAll: 'Back to all records',
+
+    tblTitle: 'Filtered Project List',
+    thYear: 'Year', thRef: 'Bursa Ref', thProject: 'Project Name', thOwner: 'Owner',
+    thIs: 'IS Status', thOrder: 'Order', thShip: 'First Shipment', thDays: 'Days Left',
+    thAge: 'Age', thEdi: 'EDI EU/VST', thBottleneck: 'Overall Status / Bottleneck',
+    emptyRows: 'No records match the selected filters.',
+
+    bDone: 'Process Completed', bCancel: 'Cancelled',
+    bWaiting: 'Waiting for {step}', bOrder: 'Waiting for Order / EDI',
+    bShipDays: '{n} days to shipment', bShipToday: 'Shipment Today!',
+    bShipLate: 'Shipment Late ({n} days)', bShipStage: 'In Shipment Stage ({v})',
+    bProcessing: 'In Progress', isValidation: 'IS Validation',
+    badgeOverdue: 'OVERDUE', badgeCritical: 'CRITICAL', badgeStale: 'STALLED',
+    tipOverdue: 'Pending project past its due date', tipStale: 'Idle for a long time',
+
+    mTitle: 'Project Detail', mSheetRow: 'Sheet row',
+    csvTitle: 'CSV Data', csvHint: 'Automatic download was blocked. Copy the text below into a .csv file.',
+    filterTag: 'Active drill-down'
+  }
+};
+
+/* --------------------------------------------------------------- 2) Durum -- */
+const APP = {
+  rows: [], filtered: [], list: [], meta: null, map: {},
+  charts: {}, lang: 'tr', kpi: 'all', quality: null,
+  sort: { key: null, dir: 1 }, autoTimer: null, dupRefs: new Set(),
+  cfg: { targetCompletionRate: 90, maxCancellationRate: 10, staleWarningDays: 90, shipmentCriticalDays: 7 }
+};
+
+const COLORS = { done: '#78c800', pending: '#ffc107', cancel: '#6c757d',
+                 overdue: '#dc3545', critical: '#fd7e14', stale: '#6f42c1', dark: '#002b49' };
+
+/* ----------------------------------------------------------- 3) Yardımcılar */
+function t(key, params) {
+  let s = (I18N[APP.lang] && I18N[APP.lang][key]) || I18N.tr[key] || key;
+  if (params) Object.keys(params).forEach(function (k) { s = s.split('{' + k + '}').join(params[k]); });
+  return s;
+}
+
+function esc(v) {
+  return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function store(key, value) {
+  try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); }
+  catch (e) { return null; }
+}
+
+/** Kanonik alan adından hücre değeri okur; kolon yoksa boş string döner. */
+function v(row, field) {
+  const header = APP.map[field];
+  if (!header) return '';
+  const val = row[header];
+  return val == null ? '' : String(val).trim();
+}
+
+function classifyStatus(value) {
+  const s = String(value || '').toUpperCase();
+  if (s.indexOf('CANCEL') !== -1 || s.indexOf('IPTAL') !== -1 || s.indexOf('İPTAL') !== -1) return 'CANCEL';
+  if (s.indexOf('DONE') !== -1 || s.indexOf('COMPLET') !== -1 || s.indexOf('TAMAM') !== -1) return 'DONE';
+  return 'PENDING';
+}
+
+function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function today() { return startOfDay(new Date()); }
+function safeDate(y, m, d) { const dt = new Date(y, m, d); return isNaN(dt.getTime()) ? null : dt; }
+
+const MONTHS = { jan:0,ocak:0,feb:1,subat:1,mar:2,mart:2,apr:3,nisan:3,may:4,mayis:4,jun:5,haziran:5,
+                 jul:6,temmuz:6,aug:7,agustos:7,sep:8,eylul:8,oct:9,ekim:9,nov:10,kasim:10,dec:11,aralik:11 };
+
+function normalizeText(s) {
+  const map = { 'İ':'I','I':'I','ı':'i','Ş':'S','ş':'s','Ğ':'G','ğ':'g','Ü':'U','ü':'u','Ö':'O','ö':'o','Ç':'C','ç':'c' };
+  return String(s || '').replace(/[İIışŞĞğÜüÖöÇç]/g, function (c) { return map[c] || c; })
+      .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/** dd.MM.yyyy · dd/MM/yyyy · yyyy-MM-dd · MM/yyyy · CW32 · Aug-26 · Ağustos 2026 */
+function parseFlexibleDate(input) {
+  const str = String(input || '').trim();
+  if (!str || /^(TBD|N\/A|NA|-|\?|DONE|OK)$/i.test(str)) return null;
+  let m;
+
+  m = str.match(/^(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})$/);
+  if (m) return safeDate(+m[1], +m[2] - 1, +m[3]);
+
+  m = str.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})$/);
+  if (m) return safeDate(+m[3] < 100 ? 2000 + +m[3] : +m[3], +m[2] - 1, +m[1]);
+
+  m = str.match(/^(\d{1,2})[.\/](\d{4})$/);          // MM/yyyy → ayın son günü
+  if (m) return safeDate(+m[2], +m[1], 0);
+
+  m = str.match(/^(?:C?W)\s*(\d{1,2})(?:[-.\/ ](\d{4}))?$/i);   // hafta numarası
+  if (m) {
+    const year = m[2] ? +m[2] : new Date().getFullYear();
+    return startOfDay(new Date(year, 0, 1 + (parseInt(m[1], 10) - 1) * 7));
+  }
+
+  m = normalizeText(str).match(/^([a-z]+)\s*(\d{2,4})?$/);       // ay adı
+  if (m) {
+    const mi = MONTHS[m[1]] !== undefined ? MONTHS[m[1]] : MONTHS[m[1].substring(0, 3)];
+    if (mi !== undefined) {
+      const y = !m[2] ? new Date().getFullYear() : (+m[2] < 100 ? 2000 + +m[2] : +m[2]);
+      return safeDate(y, mi + 1, 0);
+    }
+  }
+  return null;
+}
+
+function fmtDate(d) {
+  if (!d) return '-';
+  const p = function (n) { return (n < 10 ? '0' : '') + n; };
+  return APP.lang === 'tr'
+      ? p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear()
+      : d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+
+function pct(part, total) { return total ? Math.round((part / total) * 100) : 0; }
+
+/* ------------------------------------------------------------- Dil değişimi */
+function setLang(lang) {
+  APP.lang = (lang === 'en') ? 'en' : 'tr';
+  store('isdash_lang', APP.lang);
+  document.documentElement.lang = APP.lang;
+  document.getElementById('lang-tr').className = 'btn ' + (APP.lang === 'tr' ? 'btn-dark' : 'btn-outline-dark');
+  document.getElementById('lang-en').className = 'btn ' + (APP.lang === 'en' ? 'btn-dark' : 'btn-outline-dark');
+  applyLang();
+  if (APP.rows.length) { buildTableHead(); applyFilters(); }
+}
+
+function applyLang() {
+  document.querySelectorAll('[data-i18n]').forEach(function (el) {
+    el.textContent = t(el.getAttribute('data-i18n'));
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(function (el) {
+    el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph')));
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(function (el) {
+    el.setAttribute('title', t(el.getAttribute('data-i18n-title')));
+  });
+  document.getElementById('splash-hint').textContent = t('loading');
+}
+
+/* ---------------------------------------------------------------- 4) Veri -- */
+document.addEventListener('DOMContentLoaded', function () {
+  APP.lang = store('isdash_lang') === 'en' ? 'en' : 'tr';
+  setLang(APP.lang);
+  loadData(false);
+});
+
+function loadData(force) {
+  document.getElementById('splash-screen').style.display = 'flex';
+  document.getElementById('error-panel').style.display = 'none';
+
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+        .withSuccessHandler(onData)
+        .withFailureHandler(function (err) {
+          showError('errTitle', String(err && err.message ? err.message : err));
+        })
+        .getDashboardData(!!force);
+  } else {
+    // Apps Script dışında (yerel önizleme) demo veriyle çalışır.
+    setTimeout(function () { onData(buildDemoPayload()); }, 400);
+  }
+}
+
+function refreshData() {
+  APP.kpi = 'all'; APP.quality = null;
+  loadData(true);
+}
+
+function showError(titleKey, message, detail) {
+  document.getElementById('splash-screen').style.display = 'none';
+  document.getElementById('main-dashboard').style.display = 'none';
+  document.getElementById('error-panel').style.display = 'block';
+  document.getElementById('error-message').textContent = message || '';
+  document.getElementById('error-detail').textContent = detail || '';
+  applyLang();
+}
+
+function onData(payload) {
+  if (!payload || payload.ok === false) {
+    const e = (payload && payload.error) || {};
+    showError('errTitle', e.message || 'Bilinmeyen hata', e.detail);
+    return;
+  }
+  document.getElementById('splash-screen').style.display = 'none';
+  document.getElementById('error-panel').style.display = 'none';
+  document.getElementById('main-dashboard').style.display = 'block';
+
+  APP.rows = payload.rows || [];
+  APP.meta = payload.meta || {};
+  APP.map = APP.meta.columnMap || {};
+  if (APP.meta.config) APP.cfg = APP.meta.config;
+
+  document.getElementById('meta-updated').textContent = APP.meta.generatedAt || '—';
+  document.getElementById('meta-rows').textContent = APP.rows.length;
+  document.getElementById('meta-cached').textContent = APP.meta.cached ? t('cachedTag') : '';
+
+  enrichRows();
+  toggleOptionalSections();
+  populateDropdowns();
+  buildTableHead();
+  initCharts();
+  applyFilters();
+}
+
+/* ------------------------------------------------ 5) Türetilmiş alanlar (__d) */
+function enrichRows() {
+  const now = today();
+  const refCount = {};
+
+  APP.rows.forEach(function (r) {
+    const ref = v(r, 'ref').toUpperCase();
+    if (ref) refCount[ref] = (refCount[ref] || 0) + 1;
+  });
+  APP.dupRefs = new Set(Object.keys(refCount).filter(function (k) { return refCount[k] > 1; }));
+
+  APP.rows.forEach(function (r) {
+    const d = {};
+    d.state = classifyStatus(v(r, 'status'));
+    d.pending = d.state === 'PENDING';
+
+    const isStatusRaw = v(r, 'isStatus');
+    d.isDone = classifyStatus(isStatusRaw) === 'DONE';
+
+    const y = parseInt(v(r, 'year'), 10);
+    d.year = isNaN(y) ? null : y;
+
+    d.shipRaw = v(r, 'firstShipment');
+    d.ship = parseFlexibleDate(d.shipRaw);
+    d.targetDate = parseFlexibleDate(v(r, 'targetDate'));
+    d.due = d.targetDate || d.ship;
+    d.daysLeft = d.due ? Math.ceil((d.due - now) / 86400000) : null;
+
+    d.start = parseFlexibleDate(v(r, 'createdDate')) || (d.year ? new Date(d.year, 0, 1) : null);
+    d.closed = parseFlexibleDate(v(r, 'closedDate'));
+    d.age = d.start ? Math.floor((now - d.start) / 86400000) : null;
+    d.cycle = (d.state === 'DONE' && d.start && d.closed) ? Math.max(0, Math.floor((d.closed - d.start) / 86400000)) : null;
+
+    const orderRaw = v(r, 'order').toUpperCase();
+    d.noOrder = d.pending && (orderRaw === '' || orderRaw === 'TBD' || orderRaw === '-' || orderRaw === 'N/A');
+
+    d.overdue = d.pending && ((d.daysLeft !== null && d.daysLeft < 0) ||
+                              (d.daysLeft === null && d.year !== null && d.year < now.getFullYear()));
+    d.critical = d.pending && !d.overdue && d.daysLeft !== null &&
+                 d.daysLeft >= 0 && d.daysLeft <= APP.cfg.shipmentCriticalDays;
+    d.stale = d.pending && d.age !== null && d.age >= APP.cfg.staleWarningDays;
+
+    d.ediEu = v(r, 'ediEu').toUpperCase() === 'YES';
+    d.ediVst = v(r, 'ediVst').toUpperCase() === 'YES';
+
+    d.bn = buildBottleneck(d, isStatusRaw);
+    d.search = (v(r, 'ref') + ' ' + v(r, 'project') + ' ' + v(r, 'owner') + ' ' + v(r, 'customer')).toLowerCase();
+
+    r.__d = d;
+  });
+}
+
+/**
+ * Darboğaz, sürecin aşama sırasına göre belirlenir:
+ * IS Validation → Order/EDI → Sevkiyat. Sonuç dilden bağımsız saklanır,
+ * metne çevrim render anında yapılır (TR/EN geçişinde yeniden hesaplama gerekmez).
+ */
+function buildBottleneck(d, isStatusRaw) {
+  if (d.state === 'CANCEL') return { key: 'bCancel', ico: 'ban', tone: 'text-secondary' };
+  if (d.state === 'DONE')   return { key: 'bDone', ico: 'check-double', tone: 'fw-bold' };
+
+  if (!d.isDone) {
+    return { key: 'bWaiting', ico: 'hourglass-start', tone: 'text-danger',
+             p: { step: isStatusRaw || t('isValidation') }, dynamicStep: !isStatusRaw };
+  }
+  if (d.noOrder) return { key: 'bOrder', ico: 'file-invoice', tone: 'text-danger' };
+
+  if (d.daysLeft !== null) {
+    if (d.daysLeft > 0) return { key: 'bShipDays', ico: 'truck', tone: 'text-primary', p: { n: d.daysLeft } };
+    if (d.daysLeft === 0) return { key: 'bShipToday', ico: 'truck', tone: 'text-warning' };
+    return { key: 'bShipLate', ico: 'truck', tone: 'text-danger', p: { n: Math.abs(d.daysLeft) } };
+  }
+  if (d.shipRaw) return { key: 'bShipStage', ico: 'truck', tone: 'text-primary', p: { v: d.shipRaw } };
+  return { key: 'bProcessing', ico: 'spinner fa-spin', tone: 'text-muted fw-bold' };
+}
+
+function bottleneckHtml(d) {
+  const b = d.bn;
+  const params = b.p ? Object.assign({}, b.p) : null;
+  if (b.dynamicStep && params) params.step = t('isValidation');   // dil değişiminde güncellenir
+  let html = '<span class="bottleneck-text ' + b.tone + '"><i class="fas fa-' + b.ico + '"></i> ' +
+             esc(t(b.key, params)) + '</span>';
+  if (d.overdue) html += ' <span class="badge bg-danger ms-1" title="' + esc(t('tipOverdue')) + '">' + esc(t('badgeOverdue')) + '</span>';
+  else if (d.critical) html += ' <span class="badge ms-1" style="background:' + COLORS.critical + '">' + esc(t('badgeCritical')) + '</span>';
+  if (d.stale) html += ' <span class="badge ms-1" style="background:' + COLORS.stale + '" title="' + esc(t('tipStale')) + '">' + esc(t('badgeStale')) + '</span>';
+  return html;
+}
+
+/* ------------------------------------------------------------ Opsiyonel UI  */
+function toggleOptionalSections() {
+  const show = function (id, on) { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+  show('wrap-owner', !!APP.map.owner);
+  show('wrap-customer', !!APP.map.customer);
+  show('wrap-owner-chart', !!APP.map.owner);
+  show('wrap-customer-chart', !!APP.map.customer);
+  document.getElementById('wrap-type-chart').className = (APP.map.owner || APP.map.customer) ? 'col-lg-6' : 'col-lg-12';
+}
+
+/* ----------------------------------------------------------- 6) Filtreler -- */
+function fillSelect(id, values, sortDesc) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  const prev = sel.value;
+  const list = Array.from(new Set(values.filter(function (x) { return x !== ''; })));
+  list.sort(sortDesc ? function (a, b) { return String(b).localeCompare(String(a), undefined, { numeric: true }); }
+                     : function (a, b) { return String(a).localeCompare(String(b), undefined, { numeric: true }); });
+  sel.innerHTML = '<option value="all" data-i18n="all">' + esc(t('all')) + '</option>';
+  list.forEach(function (x) { sel.add(new Option(x, x)); });
+  if (prev && Array.prototype.some.call(sel.options, function (o) { return o.value === prev; })) sel.value = prev;
+}
+
+function populateDropdowns() {
+  fillSelect('filter-type', APP.rows.map(function (r) { return v(r, 'type'); }), false);
+  fillSelect('filter-year', APP.rows.map(function (r) { return v(r, 'year'); }), true);
+  if (APP.map.owner) fillSelect('filter-owner', APP.rows.map(function (r) { return v(r, 'owner'); }), false);
+  if (APP.map.customer) fillSelect('filter-customer', APP.rows.map(function (r) { return v(r, 'customer'); }), false);
+}
+
+let filterTimer = null;
+function debouncedFilter() {
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(applyFilters, 200);
+}
+
+function resetFilters() {
+  ['filter-status', 'filter-type', 'filter-year', 'filter-edi', 'filter-owner', 'filter-customer']
+      .forEach(function (id) { const el = document.getElementById(id); if (el) el.value = 'all'; });
+  document.getElementById('search-box').value = '';
+  APP.kpi = 'all';
+  APP.quality = null;
+  APP.sort = { key: null, dir: 1 };
+  updateKpiUI();
+  applyFilters();
+}
+
+function val(id) { const el = document.getElementById(id); return el ? el.value : 'all'; }
+
+function applyFilters() {
+  const status = val('filter-status'), type = val('filter-type'), year = val('filter-year'),
+        edi = val('filter-edi'), owner = val('filter-owner'), customer = val('filter-customer');
+  const search = (document.getElementById('search-box').value || '').toLowerCase().trim();
+
+  APP.filtered = APP.rows.filter(function (r) {
+    const d = r.__d;
+    if (status !== 'all' && d.state !== status) return false;
+    if (type !== 'all' && v(r, 'type') !== type) return false;
+    if (year !== 'all' && v(r, 'year') !== year) return false;
+    if (owner !== 'all' && v(r, 'owner') !== owner) return false;
+    if (customer !== 'all' && v(r, 'customer') !== customer) return false;
+    if (edi === 'EU_YES' && !d.ediEu) return false;
+    if (edi === 'VST_YES' && !d.ediVst) return false;
+    if (edi === 'BOTH_NO' && (d.ediEu || d.ediVst)) return false;
+    if (search && d.search.indexOf(search) === -1) return false;
+    return true;
+  });
+
+  updateKpis();
+  updateQuality();
+  updateAlerts();
+  try { updateCharts(); } catch (e) { console.error('Grafik cizilemedi:', e); }
+
+  APP.list = APP.filtered.filter(function (r) {
+    return matchesKpi(r.__d) && matchesQuality(r);
+  });
+
+  sortList();
+  renderTable();
+}
+
+function matchesKpi(d) {
+  switch (APP.kpi) {
+    case 'DONE': return d.state === 'DONE';
+    case 'CANCEL': return d.state === 'CANCEL';
+    case 'PENDING': return d.pending;
+    case 'OVERDUE': return d.overdue;
+    case 'CRITICAL': return d.critical;
+    case 'STALE': return d.stale;
+    case 'NOORDER': return d.noOrder;
+    default: return true;
+  }
+}
+
+function setKpiFilter(name) {
+  APP.kpi = name;
+  APP.quality = null;
+  updateKpiUI();
+  applyFilters();
+}
+
+function updateKpiUI() {
+  document.querySelectorAll('.kpi-card').forEach(function (c) { c.classList.remove('active-kpi'); });
+  const el = document.getElementById('card-' + String(APP.kpi).toLowerCase());
+  if (el) el.classList.add('active-kpi');
+}
+
+/* ---------------------------------------------------- 7) KPI & Uyarı şeridi */
+function computeStats(rows) {
+  const s = { total: rows.length, done: 0, pending: 0, cancel: 0, overdue: 0, critical: 0,
+              stale: 0, noOrder: 0, oldest: 0, cycleSum: 0, cycleCount: 0 };
+  rows.forEach(function (r) {
+    const d = r.__d;
+    if (d.state === 'DONE') { s.done++; if (d.cycle !== null) { s.cycleSum += d.cycle; s.cycleCount++; } }
+    else if (d.state === 'CANCEL') s.cancel++;
+    else s.pending++;
+    if (d.overdue) s.overdue++;
+    if (d.critical) s.critical++;
+    if (d.stale) s.stale++;
+    if (d.noOrder) s.noOrder++;
+    if (d.pending && d.age !== null && d.age > s.oldest) s.oldest = d.age;
+  });
+  s.doneRate = pct(s.done, s.total);
+  s.pendingRate = pct(s.pending, s.total);
+  s.cancelRate = pct(s.cancel, s.total);
+  s.avgCycle = s.cycleCount ? Math.round(s.cycleSum / s.cycleCount) : null;
+  return s;
+}
+
+function updateKpis() {
+  const s = APP.stats = computeStats(APP.filtered);
+  const set = function (id, txt) { document.getElementById(id).textContent = txt; };
+
+  set('kpi-total', s.total);
+  set('kpi-done', s.done);
+  set('kpi-pending', s.pending);
+  set('kpi-cancel', s.cancel);
+  set('kpi-overdue', s.overdue);
+  set('kpi-critical', s.critical);
+
+  set('kpi-total-sub', APP.meta && APP.meta.totalRows && APP.meta.totalRows !== s.total
+      ? s.total + ' / ' + APP.meta.totalRows : t('subNone'));
+  set('kpi-done-sub', s.avgCycle !== null ? t('subCycle', { n: s.avgCycle }) : t('subOfTotal', { n: s.doneRate }));
+  set('kpi-pending-sub', s.oldest ? t('subOldest', { n: s.oldest }) : t('subOfTotal', { n: s.pendingRate }));
+  set('kpi-cancel-sub', t('subOfTotal', { n: s.cancelRate }));
+  set('kpi-overdue-sub', s.stale ? t('subStale', { n: s.stale, d: APP.cfg.staleWarningDays }) : t('subNone'));
+  set('kpi-critical-sub', t('subOfTotal', { n: pct(s.critical, s.total) }));
+}
+
+function updateAlerts() {
+  const s = APP.stats;
+  const strip = document.getElementById('alert-strip');
+  const pills = [];
+
+  const pill = function (cls, icon, n, textKey, params, filter) {
+    return '<button class="alert-pill ' + cls + '" onclick="setKpiFilter(\'' + filter + '\')">' +
+           '<i class="fas fa-' + icon + '"></i><span class="n">' + n + '</span>' +
+           '<span>' + esc(t(textKey, params)) + '</span></button>';
+  };
+
+  if (s.critical) pills.push(pill('ap-critical', 'stopwatch', s.critical, 'alertCritical', { n: APP.cfg.shipmentCriticalDays }, 'CRITICAL'));
+  if (s.overdue)  pills.push(pill('ap-overdue', 'triangle-exclamation', s.overdue, 'alertOverdue', null, 'OVERDUE'));
+  if (s.stale)    pills.push(pill('ap-stale', 'hourglass-end', s.stale, 'alertStale', { n: APP.cfg.staleWarningDays }, 'STALE'));
+  if (s.noOrder)  pills.push(pill('ap-order', 'file-invoice', s.noOrder, 'alertOrder', null, 'NOORDER'));
+
+  const qTotal = (APP.qualityIssues || []).reduce(function (a, x) { return a + x.rows.length; }, 0);
+  if (qTotal) {
+    pills.push('<button class="alert-pill ap-quality" onclick="openQuality()">' +
+               '<i class="fas fa-clipboard-question"></i><span class="n">' + qTotal + '</span>' +
+               '<span>' + esc(t('alertQuality')) + '</span></button>');
+  }
+
+  strip.innerHTML = pills.length ? pills.join('')
+      : '<div class="alert-pill ap-clear"><i class="fas fa-circle-check"></i><span>' + esc(t('alertClear')) + '</span></div>';
+}
+
+/* ------------------------------------------------------------ 8) Grafikler */
+function initCharts() {
+  // CDN erişilemezse panel grafiksiz ama çalışır durumda kalmalı.
+  if (typeof echarts === 'undefined') {
+    APP.chartsReady = false;
+    document.querySelectorAll('.donut-container,.gauge-container,.chart-md,.chart-sm').forEach(function (el) {
+      el.innerHTML = '<div class="empty-state"><i class="fas fa-chart-simple"></i>' + esc(t('chartsOffline')) + '</div>';
+    });
+    return;
+  }
+  APP.chartsReady = true;
+  const ids = { donut: 'donutChart', gaugeDone: 'gaugeDone', gaugePending: 'gaugePending',
+                gaugeCancel: 'gaugeCancel', trend: 'trendChart', aging: 'agingChart',
+                type: 'typeChart', owner: 'ownerChart', customer: 'customerChart' };
+  Object.keys(ids).forEach(function (k) {
+    const el = document.getElementById(ids[k]);
+    if (el && !APP.charts[k]) APP.charts[k] = echarts.init(el);
+  });
+  if (!APP.resizeBound) {
+    window.addEventListener('resize', function () {
+      Object.keys(APP.charts).forEach(function (k) { APP.charts[k].resize(); });
+    });
+    APP.resizeBound = true;
+  }
+}
+
+function emptyGraphic() {
+  return { graphic: { type: 'text', left: 'center', top: 'middle',
+           style: { text: t('chNoData'), fill: '#9aa5b1', font: '13px Segoe UI' } } };
+}
+
+function gaugeOption(value, color, targetLine) {
+  const axis = targetLine
+      ? [[targetLine / 100, '#e2e8f0'], [1, '#c8d2dc']]
+      : [[1, '#e2e8f0']];
+  return {
+    series: [{
+      type: 'gauge', startAngle: 180, endAngle: 0, min: 0, max: 100,
+      pointer: { show: true, length: '60%', width: 5 },
+      progress: { show: true, overlap: false, roundCap: true, clip: false, itemStyle: { color: color } },
+      axisLine: { lineStyle: { width: 12, color: axis } },
+      splitLine: { show: false }, axisTick: { show: false }, axisLabel: { show: false },
+      data: [{ value: value }],
+      detail: { fontSize: 22, fontWeight: 'bold', formatter: '{value}%', offsetCenter: ['0%', '-15%'], color: color }
+    }]
+  };
+}
+
+function rateColor(rate, target, inverse) {
+  if (inverse) return rate <= target ? COLORS.done : (rate <= target * 2 ? COLORS.pending : COLORS.overdue);
+  if (rate >= target) return COLORS.done;
+  if (rate >= target - 20) return COLORS.pending;
+  return COLORS.overdue;
+}
+
+function updateCharts() {
+  if (!APP.chartsReady) return;
+  const s = APP.stats;
+  const tgt = APP.cfg.targetCompletionRate, maxCancel = APP.cfg.maxCancellationRate;
+
+  APP.charts.gaugeDone.setOption(gaugeOption(s.doneRate, rateColor(s.doneRate, tgt), tgt), true);
+  APP.charts.gaugePending.setOption(gaugeOption(s.pendingRate, COLORS.pending), true);
+  APP.charts.gaugeCancel.setOption(gaugeOption(s.cancelRate, rateColor(s.cancelRate, maxCancel, true), maxCancel), true);
+
+  document.getElementById('target-done').textContent = t('target') + ': %' + tgt;
+  document.getElementById('target-pending').textContent = '';
+  document.getElementById('target-cancel').textContent = t('target') + ': ≤%' + maxCancel;
+
+  // --- Donut ---
+  const donutData = [
+    { value: s.done, name: t('sDone'), itemStyle: { color: COLORS.done } },
+    { value: s.pending, name: t('sPending'), itemStyle: { color: COLORS.pending } },
+    { value: s.cancel, name: t('sCancel'), itemStyle: { color: COLORS.cancel } }
+  ].filter(function (x) { return x.value > 0; });
+
+  APP.charts.donut.setOption(Object.assign({
+    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+    legend: { bottom: 0, left: 'center', itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 } },
+    series: [{
+      type: 'pie', radius: ['55%', '80%'], center: ['50%', '43%'],
+      label: { show: true, position: 'center', formatter: function () { return s.doneRate + '%'; },
+               fontSize: 24, fontWeight: 'bold', color: rateColor(s.doneRate, tgt) },
+      emphasis: { label: { show: true, fontSize: 24 } },
+      labelLine: { show: false }, data: donutData
+    }]
+  }, s.total ? { graphic: null } : emptyGraphic()), true);
+
+  updateTrendChart();
+  updateAgingChart();
+  updateBreakdownChart('type', 'type', APP.charts.type);
+  if (APP.map.owner) updateBreakdownChart('owner', 'owner', APP.charts.owner);
+  if (APP.map.customer) updateBreakdownChart('customer', 'customer', APP.charts.customer);
+}
+
+/** Tarih kolonu varsa aylık akış, yoksa yıl bazında portföy kırılımı gösterir. */
+function updateTrendChart() {
+  const monthly = !!APP.map.createdDate;
+  document.getElementById('trend-title').textContent = t(monthly ? 'chTrendMonth' : 'chTrendYear');
+  document.getElementById('trend-note').textContent = t(monthly ? 'chTrendNoteMonth' : 'chTrendNoteYear');
+
+  let categories = [], done = [], pending = [], cancel = [], rate = [];
+
+  if (monthly) {
+    const now = today();
+    const keys = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      keys.push({ k: d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2),
+                  label: ('0' + (d.getMonth() + 1)).slice(-2) + '/' + String(d.getFullYear()).slice(-2) });
+    }
+    const buckets = {};
+    keys.forEach(function (x) { buckets[x.k] = { done: 0, pending: 0, cancel: 0 }; });
+    APP.filtered.forEach(function (r) {
+      const d = r.__d;
+      if (!d.start) return;
+      const k = d.start.getFullYear() + '-' + ('0' + (d.start.getMonth() + 1)).slice(-2);
+      if (!buckets[k]) return;
+      if (d.state === 'DONE') buckets[k].done++;
+      else if (d.state === 'CANCEL') buckets[k].cancel++;
+      else buckets[k].pending++;
+    });
+    keys.forEach(function (x) {
+      categories.push(x.label);
+      const b = buckets[x.k];
+      done.push(b.done); pending.push(b.pending); cancel.push(b.cancel);
+      rate.push(pct(b.done, b.done + b.pending + b.cancel));
+    });
+  } else {
+    const buckets = {};
+    APP.filtered.forEach(function (r) {
+      const key = r.__d.year !== null ? String(r.__d.year) : t('sUnknown');
+      if (!buckets[key]) buckets[key] = { done: 0, pending: 0, cancel: 0 };
+      const d = r.__d;
+      if (d.state === 'DONE') buckets[key].done++;
+      else if (d.state === 'CANCEL') buckets[key].cancel++;
+      else buckets[key].pending++;
+    });
+    Object.keys(buckets).sort(function (a, b) { return String(a).localeCompare(String(b), undefined, { numeric: true }); })
+        .forEach(function (k) {
+          categories.push(k);
+          const b = buckets[k];
+          done.push(b.done); pending.push(b.pending); cancel.push(b.cancel);
+          rate.push(pct(b.done, b.done + b.pending + b.cancel));
+        });
+  }
+
+  const hasData = categories.length && (done.concat(pending, cancel).some(function (x) { return x > 0; }));
+
+  APP.charts.trend.setOption(Object.assign({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { bottom: 0, itemWidth: 11, itemHeight: 11, textStyle: { fontSize: 11 } },
+    grid: { left: 45, right: 50, top: 20, bottom: 45 },
+    xAxis: { type: 'category', data: categories, axisLabel: { fontSize: 11 } },
+    yAxis: [
+      { type: 'value', splitLine: { lineStyle: { color: '#eef2f5' } } },
+      { type: 'value', min: 0, max: 100, axisLabel: { formatter: '{value}%', fontSize: 10 }, splitLine: { show: false } }
+    ],
+    series: [
+      { name: t('sDone'), type: 'bar', stack: 'x', data: done, itemStyle: { color: COLORS.done } },
+      { name: t('sPending'), type: 'bar', stack: 'x', data: pending, itemStyle: { color: COLORS.pending } },
+      { name: t('sCancel'), type: 'bar', stack: 'x', data: cancel, itemStyle: { color: COLORS.cancel } },
+      { name: t('sRate'), type: 'line', yAxisIndex: 1, data: rate, smooth: true,
+        symbolSize: 6, lineStyle: { width: 2, color: COLORS.dark }, itemStyle: { color: COLORS.dark } }
+    ]
+  }, hasData ? { graphic: null } : emptyGraphic()), true);
+}
+
+function updateAgingChart() {
+  const limits = [30, 60, 90];
+  const labels = ['0-30', '31-60', '61-90', '90+', t('sUnknown')];
+  const counts = [0, 0, 0, 0, 0];
+
+  APP.filtered.forEach(function (r) {
+    const d = r.__d;
+    if (!d.pending) return;
+    if (d.age === null) { counts[4]++; return; }
+    if (d.age <= limits[0]) counts[0]++;
+    else if (d.age <= limits[1]) counts[1]++;
+    else if (d.age <= limits[2]) counts[2]++;
+    else counts[3]++;
+  });
+
+  const palette = ['#78c800', '#c7d92c', COLORS.pending, COLORS.overdue, '#c8d2dc'];
+  const hasData = counts.some(function (x) { return x > 0; });
+
+  APP.charts.aging.setOption(Object.assign({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: 40, right: 20, top: 20, bottom: 30 },
+    xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 11 } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef2f5' } } },
+    series: [{
+      type: 'bar', data: counts.map(function (c, i) { return { value: c, itemStyle: { color: palette[i], borderRadius: [4, 4, 0, 0] } }; }),
+      barMaxWidth: 46, label: { show: true, position: 'top', fontSize: 11, fontWeight: 'bold' }
+    }]
+  }, hasData ? { graphic: null } : emptyGraphic()), true);
+}
+
+/** Tip / Sorumlu / Müşteri için ortak yığılmış yatay çubuk (ilk 10, hacme göre). */
+function updateBreakdownChart(field, key, chart) {
+  if (!chart) return;
+  const buckets = {};
+  APP.filtered.forEach(function (r) {
+    const name = v(r, field) || t('sUnknown');
+    if (!buckets[name]) buckets[name] = { done: 0, pending: 0, cancel: 0, total: 0 };
+    const d = r.__d;
+    if (d.state === 'DONE') buckets[name].done++;
+    else if (d.state === 'CANCEL') buckets[name].cancel++;
+    else buckets[name].pending++;
+    buckets[name].total++;
+  });
+
+  const names = Object.keys(buckets).sort(function (a, b) { return buckets[b].total - buckets[a].total; }).slice(0, 10).reverse();
+  const hasData = names.length > 0;
+
+  chart.setOption(Object.assign({
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'shadow' },
+      formatter: function (ps) {
+        const n = ps[0].name, b = buckets[n];
+        return '<b>' + n + '</b><br/>' + ps.map(function (p) { return p.marker + p.seriesName + ': ' + p.value; }).join('<br/>') +
+               '<br/><b>' + t('sRate') + ': ' + pct(b.done, b.total) + '%</b>';
+      }
+    },
+    legend: { bottom: 0, itemWidth: 11, itemHeight: 11, textStyle: { fontSize: 11 } },
+    grid: { left: 5, right: 45, top: 10, bottom: 40, containLabel: true },
+    xAxis: { type: 'value', splitLine: { lineStyle: { color: '#eef2f5' } } },
+    yAxis: { type: 'category', data: names, axisLabel: { fontSize: 11, width: 110, overflow: 'truncate' } },
+    series: [
+      { name: t('sDone'), type: 'bar', stack: 'x', data: names.map(function (n) { return buckets[n].done; }), itemStyle: { color: COLORS.done } },
+      { name: t('sPending'), type: 'bar', stack: 'x', data: names.map(function (n) { return buckets[n].pending; }), itemStyle: { color: COLORS.pending } },
+      { name: t('sCancel'), type: 'bar', stack: 'x', data: names.map(function (n) { return buckets[n].cancel; }), itemStyle: { color: COLORS.cancel },
+        label: { show: true, position: 'right', fontSize: 10, color: '#6c757d',
+                 formatter: function (p) { const b = buckets[p.name]; return pct(b.done, b.total) + '%'; } } }
+    ]
+  }, hasData ? { graphic: null } : emptyGraphic()), true);
+}
+
+/* -------------------------------------------------------- 9) Veri kalitesi */
+const QUALITY_CHECKS = [
+  { key: 'qNoYear',   tone: 'bg-warning text-dark', test: function (r) { return !v(r, 'year'); } },
+  { key: 'qNoStatus', tone: 'bg-danger',            test: function (r) { return !v(r, 'status'); } },
+  { key: 'qBadShip',  tone: 'bg-warning text-dark',
+    test: function (r) { return r.__d.pending && r.__d.shipRaw && !r.__d.ship && !/^(TBD|N\/A|NA|-|\?|DONE|OK)$/i.test(r.__d.shipRaw); } },
+  { key: 'qNoShip',   tone: 'bg-secondary',         test: function (r) { return r.__d.pending && !r.__d.shipRaw; } },
+  { key: 'qNoOrder',  tone: 'bg-primary',           test: function (r) { return r.__d.noOrder; } },
+  { key: 'qDupRef',   tone: 'bg-dark',
+    test: function (r) { const ref = v(r, 'ref').toUpperCase(); return !!ref && APP.dupRefs.has(ref); } }
+];
+
+function updateQuality() {
+  APP.qualityIssues = QUALITY_CHECKS.map(function (c) {
+    return { key: c.key, tone: c.tone, rows: APP.filtered.filter(c.test) };
+  }).filter(function (x) { return x.rows.length > 0; });
+
+  const total = APP.qualityIssues.reduce(function (a, x) { return a + x.rows.length; }, 0);
+  const badge = document.getElementById('quality-count');
+  badge.textContent = total;
+  badge.className = 'badge me-2 ' + (total ? 'bg-warning text-dark' : 'bg-success');
+
+  const body = document.getElementById('quality-body');
+  if (!APP.qualityIssues.length) {
+    body.innerHTML = '<div class="text-success small fw-bold"><i class="fas fa-circle-check"></i> ' + esc(t('qClean')) + '</div>';
+    return;
+  }
+  let html = APP.qualityIssues.map(function (x) {
+    return '<div class="quality-item" onclick="setQualityFilter(\'' + x.key + '\')">' +
+           '<span><i class="fas fa-angle-right text-muted me-2"></i>' + esc(t(x.key)) + '</span>' +
+           '<span class="badge ' + x.tone + '">' + x.rows.length + '</span></div>';
+  }).join('');
+  if (APP.quality) {
+    html += '<button class="btn btn-sm btn-outline-secondary mt-2" onclick="setQualityFilter(null)">' +
+            '<i class="fas fa-xmark"></i> ' + esc(t('qShowAll')) + '</button>';
+  }
+  body.innerHTML = html;
+}
+
+function matchesQuality(row) {
+  if (!APP.quality) return true;
+  const check = QUALITY_CHECKS.filter(function (c) { return c.key === APP.quality; })[0];
+  return check ? check.test(row) : true;
+}
+
+function setQualityFilter(key) {
+  APP.quality = key;
+  if (key) { APP.kpi = 'all'; updateKpiUI(); openQuality(); }
+  applyFilters();
+}
+
+function toggleQuality() {
+  const body = document.getElementById('quality-body');
+  const open = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  document.getElementById('quality-chevron').className = 'fas fa-chevron-' + (open ? 'up' : 'down');
+}
+
+function openQuality() {
+  const body = document.getElementById('quality-body');
+  if (body.style.display === 'none') toggleQuality();
+  body.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/* ---------------------------------------------------------------- 10) Tablo */
+function tableColumns() {
+  return [
+    { key: 'year',    label: 'thYear',       sort: 'num',  cls: 'fw-bold' },
+    { key: 'ref',     label: 'thRef',        sort: 'str' },
+    { key: 'project', label: 'thProject',    sort: 'str' },
+    { key: 'owner',   label: 'thOwner',      sort: 'str',  needs: 'owner', cls: 'd-none d-lg-table-cell' },
+    { key: 'isStatus',label: 'thIs',         sort: 'str' },
+    { key: 'order',   label: 'thOrder',      sort: 'str',  cls: 'd-none d-md-table-cell' },
+    { key: 'ship',    label: 'thShip',       sort: 'date', cls: 'd-none d-md-table-cell' },
+    { key: 'days',    label: 'thDays',       sort: 'days' },
+    { key: 'age',     label: 'thAge',        sort: 'age',  cls: 'd-none d-xl-table-cell' },
+    { key: 'edi',     label: 'thEdi',        sort: null,   cls: 'd-none d-lg-table-cell' },
+    { key: 'bn',      label: 'thBottleneck', sort: null }
+  ].filter(function (c) { return !c.needs || APP.map[c.needs]; });
+}
+
+function buildTableHead() {
+  const head = document.getElementById('table-head');
+  head.innerHTML = tableColumns().map(function (c) {
+    const sorted = APP.sort.key === c.key;
+    const ico = c.sort ? '<i class="fas fa-sort' + (sorted ? (APP.sort.dir > 0 ? '-up' : '-down') : '') + ' sort-ico"></i>' : '';
+    return '<th class="' + (c.cls || '') + (c.sort ? ' sortable' : '') + (sorted ? ' sorted' : '') + '"' +
+           (c.sort ? ' onclick="sortBy(\'' + c.key + '\')"' : '') + '>' + esc(t(c.label)) + ico + '</th>';
+  }).join('');
+}
+
+function sortBy(key) {
+  if (APP.sort.key === key) APP.sort.dir = -APP.sort.dir;
+  else APP.sort = { key: key, dir: 1 };
+  buildTableHead();
+  sortList();
+  renderTable();
+}
+
+/** Sıralama değeri. null = "bu satır için geçerli değil" → her zaman listenin sonunda. */
+function sortValue(row, key) {
+  const d = row.__d;
+  switch (key) {
+    case 'year': return d.year;
+    case 'ref': return v(row, 'ref').toLowerCase() || null;
+    case 'project': return v(row, 'project').toLowerCase() || null;
+    case 'owner': return v(row, 'owner').toLowerCase() || null;
+    case 'isStatus': return v(row, 'isStatus').toLowerCase() || null;
+    case 'order': return v(row, 'order').toLowerCase() || null;
+    case 'ship': return d.ship ? d.ship.getTime() : null;
+    // Kalan gün ve yaş yalnızca bekleyen kayıtlarda anlamlıdır (tabloda da "-" gösterilir).
+    case 'days': return d.pending && d.daysLeft !== null ? d.daysLeft : null;
+    case 'age': return d.pending && d.age !== null ? d.age : null;
+    default: return null;
+  }
+}
+
+function sortList() {
+  if (!APP.sort.key) return;
+  const key = APP.sort.key, dir = APP.sort.dir;
+  const isEmpty = function (x) { return x === null || x === undefined || x === ''; };
+  APP.list.sort(function (a, b) {
+    const av = sortValue(a, key), bv = sortValue(b, key);
+    if (isEmpty(av) && isEmpty(bv)) return 0;
+    if (isEmpty(av)) return 1;
+    if (isEmpty(bv)) return -1;
+    if (typeof av === 'string' || typeof bv === 'string') {
+      return String(av).localeCompare(String(bv), undefined, { numeric: true }) * dir;
+    }
+    return (av - bv) * dir;
+  });
+}
+
+function daysCell(d) {
+  if (d.state === 'DONE' || d.state === 'CANCEL' || d.daysLeft === null) return '<span class="text-muted">-</span>';
+  if (d.daysLeft < 0) return '<span class="cell-days" style="color:' + COLORS.overdue + '">-' + Math.abs(d.daysLeft) + '</span>';
+  if (d.daysLeft <= APP.cfg.shipmentCriticalDays) return '<span class="cell-days" style="color:' + COLORS.critical + '">' + d.daysLeft + '</span>';
+  return '<span class="cell-days text-muted">' + d.daysLeft + '</span>';
+}
+
+function ageCell(d) {
+  if (!d.pending || d.age === null) return '<span class="text-muted">-</span>';
+  const color = d.age >= APP.cfg.staleWarningDays ? COLORS.stale : (d.age >= 60 ? COLORS.pending : '#6c757d');
+  return '<span class="cell-days" style="color:' + color + '">' + d.age + '</span>';
+}
+
+function ediCell(d) {
+  const b = function (on, label) {
+    return on ? '<span class="badge bg-success border" style="width:45px">' + label + ' ✔</span>'
+              : '<span class="badge bg-light text-muted border" style="width:45px">' + label + ' ✘</span>';
+  };
+  return b(d.ediEu, 'EU') + ' ' + b(d.ediVst, 'VST');
+}
+
+function renderTable() {
+  const tbody = document.getElementById('table-body');
+  const cols = tableColumns();
+
+  document.getElementById('list-count').textContent = APP.list.length + ' ' + t('records');
+
+  const tag = document.getElementById('active-filter-badge');
+  const activeLabel = APP.quality ? t(APP.quality)
+      : (APP.kpi !== 'all' ? t({ DONE: 'kpiDone', PENDING: 'kpiPending', CANCEL: 'kpiCancel',
+                                 OVERDUE: 'kpiOverdue', CRITICAL: 'kpiCritical',
+                                 STALE: 'badgeStale', NOORDER: 'qNoOrder' }[APP.kpi] || 'all') : null);
+  if (activeLabel) { tag.style.display = ''; tag.textContent = t('filterTag') + ': ' + activeLabel; }
+  else { tag.style.display = 'none'; tag.textContent = ''; }
+
+  if (!APP.list.length) {
+    tbody.innerHTML = '<tr><td colspan="' + cols.length + '"><div class="empty-state">' +
+                      '<i class="fas fa-inbox"></i>' + esc(t('emptyRows')) + '</div></td></tr>';
+    return;
+  }
+
+  const html = APP.list.map(function (row, idx) {
+    const d = row.__d;
+    const rowClass = d.state === 'DONE' ? 'row-done'
+                   : d.state === 'CANCEL' ? 'row-cancel'
+                   : d.overdue ? 'row-overdue'
+                   : d.critical ? 'row-critical' : '';
+
+    const cells = cols.map(function (c) {
+      const cls = c.cls ? ' class="' + c.cls + '"' : '';
+      switch (c.key) {
+        case 'year': return '<td class="fw-bold ' + (c.cls || '') + '">' + esc(v(row, 'year') || '-') + '</td>';
+        case 'ref': return '<td' + cls + '>' + esc(v(row, 'ref') || '-') + '</td>';
+        case 'project': return '<td class="text-truncate ' + (c.cls || '') + '" style="max-width:220px" title="' +
+                               esc(v(row, 'project')) + '">' + esc(v(row, 'project') || '-') + '</td>';
+        case 'owner': return '<td' + cls + '>' + esc(v(row, 'owner') || '-') + '</td>';
+        case 'isStatus': return '<td' + cls + '>' + (d.isDone
+                ? '<span class="text-success fw-bold">DONE</span>'
+                : '<span class="text-warning fw-bold">' + esc(v(row, 'isStatus') || 'PENDING') + '</span>') + '</td>';
+        case 'order': return '<td' + cls + '>' + esc(v(row, 'order') || '-') + '</td>';
+        case 'ship': return '<td' + cls + '>' + esc(d.shipRaw || '-') + '</td>';
+        case 'days': return '<td' + cls + '>' + daysCell(d) + '</td>';
+        case 'age': return '<td' + cls + '>' + ageCell(d) + '</td>';
+        case 'edi': return '<td' + cls + '>' + ediCell(d) + '</td>';
+        case 'bn': return '<td' + cls + '>' + bottleneckHtml(d) + '</td>';
+        default: return '<td></td>';
+      }
+    }).join('');
+
+    return '<tr class="' + rowClass + '" onclick="showDetail(' + idx + ')">' + cells + '</tr>';
+  }).join('');
+
+  tbody.innerHTML = html;
+}
+
+/* ------------------------------------------------------------ Detay penceresi */
+function showDetail(index) {
+  const row = APP.list[index];
+  if (!row) return;
+  const d = row.__d;
+
+  document.getElementById('detail-title').textContent =
+      (v(row, 'ref') || '—') + ' · ' + (v(row, 'project') || t('mTitle'));
+
+  let html = '<div class="mb-3">' + bottleneckHtml(d) + '</div>';
+  html += '<table class="table table-sm table-striped mb-0"><tbody>';
+
+  (APP.meta.headers || Object.keys(row)).forEach(function (h) {
+    if (!h || h.indexOf('__') === 0) return;
+    const value = row[h];
+    if (value === undefined) return;
+    html += '<tr><th style="width:38%;font-size:.8rem;color:#002b49">' + esc(h) + '</th>' +
+            '<td style="font-size:.82rem">' + (String(value).trim() === '' ? '<span class="text-muted">—</span>' : esc(value)) + '</td></tr>';
+  });
+
+  if (d.due) html += '<tr><th style="font-size:.8rem;color:#002b49">' + esc(t('thDays')) + '</th><td style="font-size:.82rem">' +
+                     fmtDate(d.due) + ' · ' + daysCell(d) + '</td></tr>';
+  if (d.age !== null) html += '<tr><th style="font-size:.8rem;color:#002b49">' + esc(t('thAge')) + '</th><td style="font-size:.82rem">' +
+                     d.age + ' ' + esc(t('days')) + '</td></tr>';
+  if (row.__row) html += '<tr><th style="font-size:.8rem;color:#002b49">' + esc(t('mSheetRow')) + '</th><td style="font-size:.82rem">' + row.__row + '</td></tr>';
+
+  html += '</tbody></table>';
+  document.getElementById('detail-body').innerHTML = html;
+  openModal('detailModal');
+}
+
+/** Bootstrap JS yüklenememişse modalı elle açar. */
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (typeof bootstrap !== 'undefined' && bootstrap.Modal) { new bootstrap.Modal(el).show(); return; }
+  el.classList.add('show');
+  el.style.display = 'block';
+  el.style.background = 'rgba(0,0,0,.5)';
+  el.querySelectorAll('[data-bs-dismiss="modal"]').forEach(function (b) {
+    b.onclick = function () { el.classList.remove('show'); el.style.display = 'none'; };
+  });
+}
+
+/* -------------------------------------------------- 11) Dışa aktarım / yenileme */
+function exportCsv() {
+  const headers = (APP.meta.headers || []).filter(function (h) { return h && h.indexOf('__') !== 0; });
+  const extra = [t('thDays'), t('thAge'), t('thBottleneck')];
+  const quote = function (s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; };
+
+  const lines = [headers.concat(extra).map(quote).join(';')];
+  APP.list.forEach(function (row) {
+    const d = row.__d;
+    const bnParams = d.bn.p ? Object.assign({}, d.bn.p) : null;
+    if (d.bn.dynamicStep && bnParams) bnParams.step = t('isValidation');
+    const values = headers.map(function (h) { return row[h]; });
+    values.push(d.daysLeft === null ? '' : d.daysLeft);
+    values.push(d.age === null ? '' : d.age);
+    values.push(t(d.bn.key, bnParams));
+    lines.push(values.map(quote).join(';'));
+  });
+
+  const csv = '﻿' + lines.join('\r\n');
+  const name = 'IS_Validation_' + new Date().toISOString().slice(0, 10) + '.csv';
+
+  try {
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name; a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1500);
+  } catch (e) {
+    // Sandbox indirmeyi engellerse metni kopyalanabilir şekilde göster.
+    document.getElementById('csv-text').value = csv;
+    openModal('csvModal');
+  }
+}
+
+function setAutoRefresh() {
+  const minutes = parseInt(document.getElementById('auto-refresh').value, 10);
+  if (APP.autoTimer) { clearInterval(APP.autoTimer); APP.autoTimer = null; }
+  if (minutes > 0) APP.autoTimer = setInterval(function () { loadData(true); }, minutes * 60000);
+}
+
+/* ------------------------------------------------------------ Demo (yerel) */
+/** Apps Script dışında açıldığında panelin çalıştığını göstermek için üretilir. */
+function buildDemoPayload() {
+  const types = ['New Project', 'Change Request', 'Localization', 'Re-sourcing'];
+  const owners = ['A. Yılmaz', 'M. Demir', 'S. Kaya', 'J. Dupont'];
+  const customers = ['Renault', 'Stellantis', 'Ford Otosan', 'VW Group'];
+  const steps = ['IS Validation', 'EDI Setup', 'Customer Approval', 'DONE'];
+  const now = new Date();
+  let seed = 20260820;
+  const rnd = function () { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const pick = function (a) { return a[Math.floor(rnd() * a.length)]; };
+  const pad = function (n) { return (n < 10 ? '0' : '') + n; };
+
+  const rows = [];
+  for (let i = 1; i <= 56; i++) {
+    const year = now.getFullYear() - Math.floor(rnd() * 3);
+    const rv = rnd();
+    const status = rv < 0.5 ? 'DONE' : (rv < 0.88 ? 'PENDING' : 'CANCEL');
+    const step = status === 'DONE' ? 'DONE' : pick(steps);
+    const ship = new Date(now.getTime() + (rnd() * 320 - 140) * 86400000);
+    rows.push({
+      'Year': String(year),
+      'Bursa Ref': 'BR-' + year + '-' + pad(i),
+      'Project Name': pick(customers) + ' ' + pick(['Wiper', 'Lighting', 'Sensor', 'Cluster']) + ' P' + (100 + i),
+      'Type': pick(types),
+      'Status': status,
+      'IS Status': step,
+      'Order': rnd() < 0.25 ? 'TBD' : 'PO-' + (40000 + i * 7),
+      'First Shipment': rnd() < 0.12 ? '' : pad(ship.getDate()) + '.' + pad(ship.getMonth() + 1) + '.' + ship.getFullYear(),
+      'Responsible': pick(owners),
+      'Customer': pick(customers),
+      'Request Date': pad(1 + Math.floor(rnd() * 28)) + '.' + pad(1 + Math.floor(rnd() * 12)) + '.' + year,
+      'Next 12 Month EDI Availability EU': rnd() < 0.6 ? 'YES' : 'NO',
+      'Next 12 Month EDI Availability VST': rnd() < 0.45 ? 'YES' : 'NO',
+      '__row': i + 1
+    });
+  }
+
+  return {
+    ok: true, rows: rows,
+    meta: {
+      headers: ['Year', 'Bursa Ref', 'Project Name', 'Type', 'Status', 'IS Status', 'Order', 'First Shipment',
+                'Responsible', 'Customer', 'Request Date',
+                'Next 12 Month EDI Availability EU', 'Next 12 Month EDI Availability VST'],
+      columnMap: { year: 'Year', ref: 'Bursa Ref', project: 'Project Name', type: 'Type', status: 'Status',
+                   isStatus: 'IS Status', order: 'Order', firstShipment: 'First Shipment',
+                   owner: 'Responsible', customer: 'Customer', createdDate: 'Request Date',
+                   targetDate: null, closedDate: null, plant: null, comment: null,
+                   ediEu: 'Next 12 Month EDI Availability EU', ediVst: 'Next 12 Month EDI Availability VST' },
+      totalRows: rows.length, sheetName: 'DEMO', cached: false,
+      generatedAt: pad(now.getDate()) + '.' + pad(now.getMonth() + 1) + '.' + now.getFullYear() + ' ' +
+                   pad(now.getHours()) + ':' + pad(now.getMinutes()),
+      config: { targetCompletionRate: 90, maxCancellationRate: 10, staleWarningDays: 90, shipmentCriticalDays: 7 }
+    }
+  };
+}
+</script>
+</body>
+</html>
