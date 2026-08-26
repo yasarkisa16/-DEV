@@ -1530,14 +1530,54 @@ function buildNewRecordsHtml_(headers, rows, lastIndex, refIndex, projectIndex, 
   return html;
 }
 
-/** TEST — bildirim e-postasinin gorunumunu ornek kayitla gonderir. */
+/**
+ * TEST — SADECE e-posta gorunumunu kontrol eder.
+ * DIKKAT: Bu fonksiyon hicbir satir AKTARMAZ. Sabit ornek veriyle mail atar.
+ * Gercek aktarim icin syncNewRows() calistirin.
+ */
 function testNotificationMail() {
   const headers = ['Year', 'Project Name', 'Type', 'Region', 'Customer', 'Extension or SK',
                    'Bursa Ref', 'VS/OES Ref', 'IS Status'];
   const rows = [['2028', 'DENEME KITI', 'DENEME', '', 'DENEME SERVICE', 'NO',
                  'DENEME 999', 'DENEME 234', 'Not in Liberation']];
   notifyNewRecords_(headers, rows);
-  Logger.log('Test bildirimi gonderildi: ' + SYNC.NOTIFY_RECIPIENTS.join(', '));
+  Logger.log('ORNEK mail gonderildi: ' + SYNC.NOTIFY_RECIPIENTS.join(', '));
+  Logger.log('!!! Bu fonksiyon hedef sayfaya SATIR EKLEMEZ — sadece mail gorunumunu test eder.');
+  Logger.log('!!! Gercek aktarim icin: syncNewRows()');
+}
+
+/**
+ * DURUM RAPORU — sistemin o anki halini tek bakista gosterir. Hicbir sey yazmaz.
+ */
+function SYNC_DURUM() {
+  const targetSs = SpreadsheetApp.openByUrl(CONFIG.SHEET_URL);
+  const targetSheet = targetSs.getSheetByName(SYNC.TARGET_SHEET_NAME);
+
+  Logger.log('=== SENKRONIZASYON DURUMU ===');
+  Logger.log('Hedef sayfa satir sayisi : ' + (targetSheet ? targetSheet.getLastRow() : 'sekme yok') +
+             ' (baslik dahil)');
+  Logger.log('Baseline kayit sayisi    : ' + Object.keys(readBaselineKeys_(targetSs)).length);
+
+  const triggers = ScriptApp.getProjectTriggers().filter(function (t) {
+    return t.getHandlerFunction() === 'syncNewRows';
+  });
+  Logger.log('Otomatik tetikleyici     : ' + (triggers.length
+      ? 'KURULU (' + (SYNC.TRIGGER_MINUTES || 15) + ' dakikada bir)'
+      : 'YOK — installSyncTrigger() calistirin'));
+
+  const logSheet = targetSs.getSheetByName(SYNC.LOG_SHEET_NAME);
+  if (logSheet && logSheet.getLastRow() > 1) {
+    const last = logSheet.getRange(logSheet.getLastRow(), 1, 1, 7).getDisplayValues()[0];
+    Logger.log('Son aktarim              : ' + last[0]);
+    Logger.log('  Eklenen / Atlanan      : ' + last[1] + ' / ' + last[2]);
+    Logger.log('  Eklenen anahtarlar     : ' + (last[5] || '(yok)'));
+    if (last[6]) Logger.log('  Hata / Uyari           : ' + last[6]);
+  } else {
+    Logger.log('Son aktarim              : HENUZ HIC CALISMADI (Sync Log bos)');
+  }
+
+  Logger.log('Bildirim alicilari       : ' + (SYNC.NOTIFY_RECIPIENTS || []).join(', '));
+  Logger.log('=============================');
 }
 
 /** Senkronizasyonu düzenli aralıkla çalıştıran tetikleyiciyi kurar. */
