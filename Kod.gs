@@ -66,11 +66,32 @@ const SYNC = {
   KEY_TARGET_HEADER: 'Bursa Ref',
   KEY_SOURCE_HEADER: '',           // Boşsa hedefle eşleşen kaynak kolonu kullanılır
 
-  // Elle kopyalanmayacak, panelde ekibin doldurduğu iş akışı kolonları.
-  EXCLUDE_TARGET_HEADERS: ['Status', 'IS Status', 'Order', 'Comment', 'Comments', 'Yorum'],
+  // Kaynaktan ASLA doldurulmayacak kolonlar. Aktarım "IS Status"a kadar olan
+  // tanımlayıcı alanları getirir; sonrasındaki iş akışı alanlarını ekip doldurur.
+  EXCLUDE_TARGET_HEADERS: [
+    'IS Status', 'Order', 'First Shipment', 'Shipment Oty', 'Status',
+    'Next 12 Month EDI Availability EU', 'Next 12 Month EDI Availability VST',
+    'MPS', 'COMMENT', 'Comment', 'Comments', 'Yorum'
+  ],
 
-  // Otomatik eşleşme yetmezse: { 'Hedef Başlık': 'Kaynak Başlık' }
-  MAP: {},
+  // Yeni satıra sabit yazılacak değerler: { 'Hedef Başlık': 'Değer' }
+  DEFAULTS: {
+    'IS Status': 'Not in Liberation'
+  },
+
+  // Başlık adları birebir tutmadığında elle bağlama: { 'Hedef Başlık': 'Kaynak Başlık' }
+  MAP: {
+    'Project Name': 'Kit'          // Kaynakta proje adı "Kit" kolonunda tutuluyor
+  },
+
+  // Kaynak dosyada yıllara yayılmış geçmiş kayıtlar bulunur. Aktarımın bunları
+  // toplu hâlde hedefe boşaltmaması için iki güvenlik önlemi vardır:
+  //   1) Baseline — markSyncBaseline() çalıştırıldığı andaki tüm anahtarlar
+  //      "zaten bilinen" sayılır; sonrasında yalnızca yeni eklenenler aktarılır.
+  //   2) MIN_LAUNCH_YEAR — bu yıldan eski kayıtlar hiç değerlendirilmez.
+  BASELINE_SHEET_NAME: 'Sync Baseline',
+  MIN_LAUNCH_YEAR: 0,              // 0 = filtre yok; ör. 2026 → sadece 2026 ve sonrası
+  IGNORED_KEY_VALUES: ['TBD', 'N/A', 'NA', '-', '?', 'YOK'],
 
   DRY_RUN: false,                  // true → yazma yapmaz, sadece raporlar
   LOG_SHEET_NAME: 'Sync Log',
@@ -907,13 +928,30 @@ function syncNewRows(silent) {
     const props = PropertiesService.getScriptProperties();
     const watermark = parseInt(props.getProperty('SYNC_LAST_SOURCE_ROW') || '0', 10);
 
+    // Hedefte hâlihazırda bulunan + baseline'da "bilinen" işaretli anahtarlar
     const existingKeys = {};
+    let baselineCount = 0;
     if (useKey) {
       for (let i = SYNC.TARGET_HEADER_ROW; i < targetValues.length; i++) {
         const k = String(targetValues[i][keyTargetIndex] || '').trim().toUpperCase();
         if (k) existingKeys[k] = true;
       }
+      const baseline = readBaselineKeys_(targetSs);
+      Object.keys(baseline).forEach(function (k) { existingKeys[k] = true; baselineCount++; });
     }
+
+    // Sabit değerlerin hedefteki kolon indeksleri (ör. IS Status → Not in Liberation)
+    const targetNormHeaders = targetHeaders.map(normalizeHeader_);
+    const defaults = [];
+    Object.keys(SYNC.DEFAULTS || {}).forEach(function (header) {
+      const ti = targetNormHeaders.indexOf(normalizeHeader_(header));
+      if (ti !== -1) defaults.push({ index: ti, value: SYNC.DEFAULTS[header] });
+      else Logger.log('UYARI: Sabit deger icin hedef kolon bulunamadi: ' + header);
+    });
+
+    // Yıl filtresi (0 = kapalı)
+    const yearIndexTarget = targetNormHeaders.indexOf(normalizeHeader_('Year'));
+    const yearMapping = mapping.filter(function (m) { return m.targetIndex === yearIndexTarget; })[0];
 
     // --- Yeni satırları topla ---
     const width = Math.max(targetHeaders.length, targetSheet.getLastColumn());
@@ -929,9 +967,19 @@ function syncNewRows(silent) {
       const hasContent = srcRow.some(function (c) { return String(c || '').trim() !== ''; });
       if (!hasContent) continue;
 
+      // TOPLAM / TOTAL gibi özet satırlarını atla
+      const firstCell = String(srcRow[0] || '').trim().toUpperCase();
+      if (firstCell === 'TOTAL' || firstCell === 'TOPLAM' || firstCell === 'GENEL TOPLAM') continue;
+
+      // Yıl filtresi
+      if (SYNC.MIN_LAUNCH_YEAR && yearMapping) {
+        const y = parseInt(String(srcRow[yearMapping.sourceIndex] || '').replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(y) && y < SYNC.MIN_LAUNCH_YEAR) continue;
+      }
+
       if (useKey) {
         const key = String(srcRow[keySourceIndex] || '').trim();
-        if (!key) { skipped++; continue; }
+        if (!isUsableKey_(key)) { skipped++; continue; }
         if (existingKeys[key.toUpperCase()]) { skipped++; continue; }
         existingKeys[key.toUpperCase()] = true;   // aynı çalıştırmada mükerrer engeli
         addedKeys.push(key);
@@ -944,10 +992,19 @@ function syncNewRows(silent) {
       mapping.forEach(function (m) {
         if (m.targetIndex < width) out[m.targetIndex] = srcRow[m.sourceIndex];
       });
+      defaults.forEach(function (d) {
+        if (d.index < width) out[d.index] = d.value;
+      });
       newRows.push(out);
       lastProcessedRow = Math.max(lastProcessedRow, rowNumber);
 
       if (newRows.length >= SYNC.MAX_ROWS_PER_RUN) break;
+    }
+
+    if (useKey && !baselineCount && newRows.length > 20) {
+      warning = 'UYARI: Baseline kurulmamis. Kaynaktaki ' + newRows.length +
+                ' gecmis kayit hedefe eklenecek. Once markSyncBaseline() calistirin.';
+      Logger.log(warning);
     }
 
     if (!newRows.length) {
@@ -1003,6 +1060,89 @@ function logSync_(ss, added, skipped, keys, mapping, useKey, errorMessage) {
     (keys || []).slice(0, 30).join(', '),
     errorMessage || ''
   ]);
+}
+
+/* --------------------------- Baseline (başlangıç çizgisi) --------------------
+ * Kaynak dosyadaki mevcut kayıtları "zaten bilinen" olarak işaretler.
+ * Böylece ilk kurulumda geçmiş kayıtlar hedefe toplu hâlde kopyalanmaz.
+ * ------------------------------------------------------------------------- */
+
+function readBaselineKeys_(targetSs) {
+  const sheet = targetSs.getSheetByName(SYNC.BASELINE_SHEET_NAME);
+  const keys = {};
+  if (!sheet || sheet.getLastRow() < 2) return keys;
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues().forEach(function (row) {
+    const k = String(row[0] || '').trim().toUpperCase();
+    if (k) keys[k] = true;
+  });
+  return keys;
+}
+
+/** Anahtar değeri aktarım için geçerli mi? (boş / TBD / N-A değil) */
+function isUsableKey_(value) {
+  const v = String(value || '').trim();
+  if (!v) return false;
+  return SYNC.IGNORED_KEY_VALUES.indexOf(v.toUpperCase()) === -1;
+}
+
+/**
+ * KURULUM ADIMI — kaynak dosyadaki mevcut tüm kayıtları baseline'a yazar.
+ * Bu andan sonra yalnızca YENİ eklenen satırlar hedefe aktarılır.
+ * Hedef sayfaya hiçbir veri satırı eklemez.
+ */
+function markSyncBaseline() {
+  const sourceSs = SpreadsheetApp.openById(SYNC.SOURCE_ID);
+  const sourceSheet = resolveSheet_(sourceSs, SYNC.SOURCE_SHEET_NAME, SYNC.SOURCE_GID);
+  if (!sourceSheet) { Logger.log('HATA: Kaynak sekme bulunamadi.'); return; }
+
+  const targetSs = SpreadsheetApp.openByUrl(CONFIG.SHEET_URL);
+  const targetSheet = targetSs.getSheetByName(SYNC.TARGET_SHEET_NAME);
+  if (!targetSheet) { Logger.log('HATA: Hedef sekme bulunamadi.'); return; }
+
+  const sourceValues = sourceSheet.getDataRange().getDisplayValues();
+  const targetHeaders = targetSheet.getRange(SYNC.TARGET_HEADER_ROW, 1, 1, targetSheet.getLastColumn())
+      .getDisplayValues()[0].map(function (h) { return String(h || '').trim(); });
+
+  const headerInfo = resolveSourceHeaderRow_(sourceValues, targetHeaders);
+  const sourceHeaders = sourceValues[headerInfo.row - 1].map(function (h) { return String(h || '').trim(); });
+  const mapping = buildSyncMapping_(targetHeaders, sourceHeaders);
+
+  const keyTargetIndex = targetHeaders.map(normalizeHeader_).indexOf(normalizeHeader_(SYNC.KEY_TARGET_HEADER));
+  let keySourceIndex = -1;
+  if (SYNC.KEY_SOURCE_HEADER) {
+    keySourceIndex = sourceHeaders.map(normalizeHeader_).indexOf(normalizeHeader_(SYNC.KEY_SOURCE_HEADER));
+  } else if (keyTargetIndex !== -1) {
+    const km = mapping.filter(function (m) { return m.targetIndex === keyTargetIndex; })[0];
+    if (km) keySourceIndex = km.sourceIndex;
+  }
+  if (keySourceIndex === -1) {
+    Logger.log('HATA: Anahtar kolon kaynakta bulunamadi. Baseline olusturulamadi.');
+    return;
+  }
+
+  const keys = [];
+  const seen = {};
+  for (let i = headerInfo.row; i < sourceValues.length; i++) {
+    const key = String(sourceValues[i][keySourceIndex] || '').trim();
+    if (!isUsableKey_(key)) continue;
+    const upper = key.toUpperCase();
+    if (seen[upper]) continue;
+    seen[upper] = true;
+    keys.push([key]);
+  }
+
+  let sheet = targetSs.getSheetByName(SYNC.BASELINE_SHEET_NAME);
+  if (!sheet) sheet = targetSs.insertSheet(SYNC.BASELINE_SHEET_NAME);
+  sheet.clear();
+  sheet.getRange(1, 1, 1, 2).setValues([[SYNC.KEY_TARGET_HEADER, 'Baseline tarihi: ' +
+      Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd.MM.yyyy HH:mm')]])
+      .setFontWeight('bold').setBackground('#002b49').setFontColor('#FFFFFF');
+  sheet.setFrozenRows(1);
+  if (keys.length) sheet.getRange(2, 1, keys.length, 1).setValues(keys);
+
+  Logger.log('Baseline olusturuldu: ' + keys.length + ' mevcut kayit "bilinen" olarak isaretlendi.');
+  Logger.log('Bundan sonra yalnizca YENI eklenen satirlar hedefe aktarilacak.');
+  return { ok: true, count: keys.length };
 }
 
 /** Panelin "Yeni Kayıtları Al" butonu bu fonksiyonu çağırır. */
@@ -1097,6 +1237,22 @@ function KURULUM_TESTI() {
   Logger.log('[3/4] SALES TURNOVER -> IS VALIDATION ESLESMESI');
   debugSyncMapping();
 
+  // --- 3b. Baseline durumu ---
+  Logger.log('');
+  Logger.log('[3b] BASELINE DURUMU');
+  try {
+    const baseline = readBaselineKeys_(SpreadsheetApp.openByUrl(CONFIG.SHEET_URL));
+    const count = Object.keys(baseline).length;
+    if (count) {
+      Logger.log('  OK — ' + count + ' kayit "bilinen" olarak isaretli. Sadece yeni satirlar aktarilacak.');
+    } else {
+      Logger.log('  KURULMAMIS! Once markSyncBaseline() calistirin.');
+      Logger.log('  Aksi halde kaynaktaki tum gecmis kayitlar hedefe eklenir.');
+    }
+  } catch (e) {
+    Logger.log('  Baseline okunamadi: ' + e);
+  }
+
   // --- 4. Prova aktarım ---
   Logger.log('');
   Logger.log('[4/4] PROVA AKTARIM (yazma yapilmaz)');
@@ -1128,7 +1284,6 @@ function syncDryRun() {
   SYNC.DRY_RUN = true;
   try {
     const result = syncNewRows(true);
-    Logger.log(result.message);
     if (result.skipped) Logger.log('Atlanan satir: ' + result.skipped +
         ' (hedefte zaten var veya Bursa Ref bos).');
     return result;
