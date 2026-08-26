@@ -1200,6 +1200,101 @@ function columnLetter_(index) {
 }
 
 /**
+ * TEŞHİS — belirli bir Bursa Ref neden aktarılmıyor?
+ * Kaynakta, hedefte ve baseline'da arar; atlanma sebebini ve aktarılsaydı
+ * hedefe yazılacak satırı raporlar. Hiçbir şey yazmaz.
+ *
+ * Kullanım: fonksiyonu duzenleyicide asagidaki gibi cagirin
+ *   function bak() { debugKey('DENEME 123'); }
+ * ya da ARANAN_REF sabitini degistirip debugKeyDefault() calistirin.
+ */
+function debugKey(key) {
+  const wanted = String(key || '').trim().toUpperCase();
+  if (!wanted) { Logger.log('HATA: Aranacak Bursa Ref bos.'); return; }
+
+  Logger.log('=== TESHIS: "' + key + '" ===');
+
+  const sourceSs = SpreadsheetApp.openById(SYNC.SOURCE_ID);
+  const sourceSheet = resolveSheet_(sourceSs, SYNC.SOURCE_SHEET_NAME, SYNC.SOURCE_GID);
+  const targetSs = SpreadsheetApp.openByUrl(CONFIG.SHEET_URL);
+  const targetSheet = targetSs.getSheetByName(SYNC.TARGET_SHEET_NAME);
+  if (!sourceSheet || !targetSheet) { Logger.log('HATA: Sekmeler acilamadi.'); return; }
+
+  const sourceValues = sourceSheet.getDataRange().getDisplayValues();
+  const targetValues = targetSheet.getDataRange().getDisplayValues();
+  const targetHeaders = targetValues[SYNC.TARGET_HEADER_ROW - 1].map(function (h) { return String(h || '').trim(); });
+  const headerInfo = resolveSourceHeaderRow_(sourceValues, targetHeaders);
+  const sourceHeaders = sourceValues[headerInfo.row - 1].map(function (h) { return String(h || '').trim(); });
+  const mapping = buildSyncMapping_(targetHeaders, sourceHeaders);
+
+  const keyTargetIndex = targetHeaders.map(normalizeHeader_).indexOf(normalizeHeader_(SYNC.KEY_TARGET_HEADER));
+  let keySourceIndex = -1;
+  if (SYNC.KEY_SOURCE_HEADER) {
+    keySourceIndex = sourceHeaders.map(normalizeHeader_).indexOf(normalizeHeader_(SYNC.KEY_SOURCE_HEADER));
+  } else if (keyTargetIndex !== -1) {
+    const km = mapping.filter(function (m) { return m.targetIndex === keyTargetIndex; })[0];
+    if (km) keySourceIndex = km.sourceIndex;
+  }
+  if (keySourceIndex === -1) { Logger.log('HATA: Anahtar kolon kaynakta bulunamadi.'); return; }
+
+  // --- Kaynakta ara ---
+  let sourceRow = -1;
+  for (let i = headerInfo.row; i < sourceValues.length; i++) {
+    if (String(sourceValues[i][keySourceIndex] || '').trim().toUpperCase() === wanted) { sourceRow = i; break; }
+  }
+  Logger.log('1) KAYNAKTA : ' + (sourceRow === -1
+      ? 'BULUNAMADI — kaynak sayfada bu Bursa Ref yok (yazim/bosluk farki olabilir).'
+      : 'satir ' + (sourceRow + 1)));
+  if (sourceRow === -1) return;
+
+  // --- Hedefte ara ---
+  let targetRow = -1;
+  for (let i = SYNC.TARGET_HEADER_ROW; i < targetValues.length; i++) {
+    if (String(targetValues[i][keyTargetIndex] || '').trim().toUpperCase() === wanted) { targetRow = i; break; }
+  }
+  Logger.log('2) HEDEFTE  : ' + (targetRow === -1 ? 'yok' : 'satir ' + (targetRow + 1) + ' — zaten aktarilmis'));
+
+  // --- Baseline'da ara ---
+  const baseline = readBaselineKeys_(targetSs);
+  const inBaseline = !!baseline[wanted];
+  Logger.log('3) BASELINE : ' + (inBaseline ? 'VAR — "bilinen" sayiliyor' : 'yok'));
+
+  // --- Diğer filtreler ---
+  const srcRow = sourceValues[sourceRow];
+  const firstCell = String(srcRow[0] || '').trim().toUpperCase();
+  const isTotal = (firstCell === 'TOTAL' || firstCell === 'TOPLAM' || firstCell === 'GENEL TOPLAM');
+  Logger.log('4) OZET SATIRI MI : ' + (isTotal ? 'EVET — atlanir' : 'hayir'));
+  Logger.log('5) ANAHTAR GECERLI MI : ' + (isUsableKey_(String(srcRow[keySourceIndex])) ? 'evet' : 'HAYIR (TBD/bos)'));
+
+  // --- Sonuç ---
+  Logger.log('');
+  if (targetRow !== -1)      Logger.log('SONUC: Hedefte zaten var, tekrar eklenmez.');
+  else if (inBaseline)       Logger.log('SONUC: BASELINE ENGELLIYOR. Bu kayit baseline alindiginda mevcuttu. ' +
+                                        'Test icin Bursa Ref degerini degistirin (or. "' + key + ' 2") ya da ' +
+                                        'Sync Baseline sekmesinden bu satiri silin.');
+  else if (isTotal)          Logger.log('SONUC: Ozet satiri oldugu icin atlanir.');
+  else if (!isUsableKey_(String(srcRow[keySourceIndex]))) Logger.log('SONUC: Anahtar gecersiz (TBD/bos).');
+  else {
+    Logger.log('SONUC: AKTARILABILIR. syncNewRows() calistirildiginda hedefe eklenecek satir:');
+    const targetNorm = targetHeaders.map(normalizeHeader_);
+    const out = new Array(targetHeaders.length).fill('');
+    mapping.forEach(function (m) { out[m.targetIndex] = srcRow[m.sourceIndex]; });
+    Object.keys(SYNC.DEFAULTS || {}).forEach(function (h) {
+      const ti = targetNorm.indexOf(normalizeHeader_(h));
+      if (ti !== -1) out[ti] = SYNC.DEFAULTS[h];
+    });
+    targetHeaders.forEach(function (h, i) {
+      if (h) Logger.log('   ' + (h + '                                    ').substring(0, 36) + ' = ' + (out[i] === '' ? '(bos)' : out[i]));
+    });
+  }
+}
+
+/** debugKey icin hazir cagri — asagidaki degeri degistirip calistirin. */
+function debugKeyDefault() {
+  debugKey('DENEME 123');
+}
+
+/**
  * ============================================================================
  *  TEK TIKLIK KURULUM TESTİ — hiçbir şey yazmaz, sadece rapor eder.
  *  Fonksiyon seçicisinden bunu seçip Çalıştır demek yeterlidir.
