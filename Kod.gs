@@ -55,7 +55,8 @@ const SYNC = {
   SOURCE_ID: '1odpzS7XdaxhhFuRoZ7ht_24Y4LJ3VSM1fdG4ydtHPrE',
   SOURCE_GID: 811830514,           // Sekme GID'i (URL'deki #gid=... değeri)
   SOURCE_SHEET_NAME: '',           // Doluysa GID yerine bu ad kullanılır
-  SOURCE_HEADER_ROW: 1,
+  SOURCE_HEADER_ROW: 0,            // 0 = otomatik bul (rapor başlıkları 1. satırda olmayabilir)
+  SOURCE_HEADER_SCAN_ROWS: 25,     // Otomatik aramada taranacak ilk satır sayısı
 
   TARGET_SHEET_NAME: 'Bursa Follow Up',
   TARGET_HEADER_ROW: 1,
@@ -756,6 +757,45 @@ function resolveSheet_(ss, name, gid) {
 }
 
 /**
+ * Kaynak sayfada başlık satırını bulur. Rapor dosyalarında ilk satırlar çoğu zaman
+ * boş ya da başlık bloğudur; bu yüzden hedef başlıklarıyla en çok örtüşen satır seçilir.
+ * @return {Object} { row, score, filled }  row 1-tabanlıdır.
+ */
+function detectSourceHeaderRow_(values, targetHeaders) {
+  const targetNorm = targetHeaders.map(normalizeHeader_).filter(String);
+  const limit = Math.min(values.length, SYNC.SOURCE_HEADER_SCAN_ROWS || 25);
+  let best = { row: 1, score: -1, filled: 0 };
+
+  for (let i = 0; i < limit; i++) {
+    const cells = values[i].map(normalizeHeader_);
+    const filled = cells.filter(String).length;
+    let score = 0;
+
+    cells.forEach(function (c) {
+      if (!c) return;
+      if (targetNorm.indexOf(c) !== -1) { score += 3; return; }         // birebir başlık
+      const partial = targetNorm.some(function (tn) {
+        return tn.length >= 4 && (tn.indexOf(c) !== -1 || c.indexOf(tn) !== -1);
+      });
+      if (partial) score += 1;
+    });
+
+    if (score > best.score || (score === best.score && filled > best.filled)) {
+      best = { row: i + 1, score: score, filled: filled };
+    }
+  }
+  return best;
+}
+
+/** Kullanılacak kaynak başlık satırını çözer (elle ayar > otomatik tespit). */
+function resolveSourceHeaderRow_(values, targetHeaders) {
+  if (SYNC.SOURCE_HEADER_ROW && SYNC.SOURCE_HEADER_ROW > 0) {
+    return { row: SYNC.SOURCE_HEADER_ROW, score: null, filled: null, manual: true };
+  }
+  return detectSourceHeaderRow_(values, targetHeaders);
+}
+
+/**
  * Hedef başlıkları ile kaynak başlıklarını eşleştirir.
  * Öncelik: elle MAP → birebir eşleşme → içerme eşleşmesi.
  */
@@ -819,14 +859,28 @@ function syncNewRows(silent) {
 
     const sourceValues = sourceSheet.getDataRange().getDisplayValues();
     const targetValues = targetSheet.getDataRange().getDisplayValues();
-    if (sourceValues.length <= SYNC.SOURCE_HEADER_ROW) {
+    if (!sourceValues.length || !targetValues.length) {
       return finishSync_({ ok: true, added: 0, skipped: 0, mapping: [], message: 'Kaynakta veri satiri yok.' });
     }
 
-    const sourceHeaders = sourceValues[SYNC.SOURCE_HEADER_ROW - 1].map(function (h) { return String(h || '').trim(); });
     const targetHeaders = targetValues[SYNC.TARGET_HEADER_ROW - 1].map(function (h) { return String(h || '').trim(); });
+    const headerInfo = resolveSourceHeaderRow_(sourceValues, targetHeaders);
+    const sourceHeaderRow = headerInfo.row;
+    if (sourceValues.length <= sourceHeaderRow) {
+      return finishSync_({ ok: true, added: 0, skipped: 0, mapping: [], message: 'Kaynakta veri satiri yok.' });
+    }
+    if (!headerInfo.manual) {
+      Logger.log('Kaynak baslik satiri otomatik bulundu: ' + sourceHeaderRow +
+                 ' (eslesme puani ' + headerInfo.score + ', ' + headerInfo.filled + ' dolu hucre)');
+    }
+
+    const sourceHeaders = sourceValues[sourceHeaderRow - 1].map(function (h) { return String(h || '').trim(); });
     const mapping = buildSyncMapping_(targetHeaders, sourceHeaders);
-    if (!mapping.length) throw new Error('Kaynak ve hedef arasinda eslesen kolon bulunamadi. SYNC.MAP ile elle eslestirin.');
+    if (!mapping.length) {
+      throw new Error('Kaynak ve hedef arasinda eslesen kolon bulunamadi (kaynak baslik satiri: ' +
+                      sourceHeaderRow + '). debugSourceRows() ile dogru satiri bulup ' +
+                      'SYNC.SOURCE_HEADER_ROW degerine yazin veya SYNC.MAP ile elle eslestirin.');
+    }
 
     // --- Anahtar kolonu çöz ---
     const keyTargetIndex = targetHeaders.map(normalizeHeader_).indexOf(normalizeHeader_(SYNC.KEY_TARGET_HEADER));
@@ -868,7 +922,7 @@ function syncNewRows(silent) {
     let skipped = 0;
     let lastProcessedRow = watermark;
 
-    for (let i = SYNC.SOURCE_HEADER_ROW; i < sourceValues.length; i++) {
+    for (let i = sourceHeaderRow; i < sourceValues.length; i++) {
       const rowNumber = i + 1;
       const srcRow = sourceValues[i];
 
@@ -958,6 +1012,54 @@ function runSyncFromDashboard() {
 }
 
 /**
+ * KURULUM YARDIMCISI — kaynak sayfanın ilk satırlarını Logs'a döker.
+ * Başlıkların hangi satırda olduğunu gözle görmek için kullanılır.
+ * @param {number} rowCount Kaç satır gösterilsin (varsayılan 15).
+ */
+function debugSourceRows(rowCount) {
+  try {
+    const ss = SpreadsheetApp.openById(SYNC.SOURCE_ID);
+    const sheet = resolveSheet_(ss, SYNC.SOURCE_SHEET_NAME, SYNC.SOURCE_GID);
+    if (!sheet) {
+      Logger.log('HATA: Kaynak sekme bulunamadi. Mevcut sekmeler: ' +
+          ss.getSheets().map(function (x) { return x.getName() + ' (gid ' + x.getSheetId() + ')'; }).join(', '));
+      return;
+    }
+
+    const n = Math.min(rowCount || 15, sheet.getLastRow());
+    const values = sheet.getRange(1, 1, n, sheet.getLastColumn()).getDisplayValues();
+
+    Logger.log('KAYNAK: ' + sheet.getName() + ' — ' + sheet.getLastRow() + ' satir x ' +
+               sheet.getLastColumn() + ' kolon. Ilk ' + n + ' satir:');
+    values.forEach(function (row, i) {
+      const filled = [];
+      row.forEach(function (cell, j) {
+        const value = String(cell || '').trim();
+        if (value) filled.push(columnLetter_(j + 1) + ':' + value);
+      });
+      Logger.log('  Satir ' + (i + 1) + ' [' + filled.length + ' dolu] ' +
+                 (filled.length ? filled.slice(0, 22).join('  |  ') : '(bos)'));
+    });
+    Logger.log('Basliklarin bulundugu satir numarasini SYNC.SOURCE_HEADER_ROW icine yazin ' +
+               '(0 birakirsaniz otomatik bulunmaya calisilir).');
+  } catch (e) {
+    Logger.log('HATA: ' + e);
+  }
+}
+
+/** 1 → A, 27 → AA gibi kolon harfi üretir (log okunurlugu icin). */
+function columnLetter_(index) {
+  let letter = '';
+  let n = index;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter;
+}
+
+/**
  * ============================================================================
  *  TEK TIKLIK KURULUM TESTİ — hiçbir şey yazmaz, sadece rapor eder.
  *  Fonksiyon seçicisinden bunu seçip Çalıştır demek yeterlidir.
@@ -1000,6 +1102,13 @@ function KURULUM_TESTI() {
   Logger.log('[4/4] PROVA AKTARIM (yazma yapilmaz)');
   const dry = syncDryRun();
   Logger.log('  ' + (dry && dry.message ? dry.message : 'Sonuc alinamadi.'));
+
+  // Eşleşme kurulamadıysa kaynak sayfanın yapısını da göster.
+  if (dry && dry.ok === false) {
+    Logger.log('');
+    Logger.log('[EK] KAYNAK SAYFA YAPISI (baslik satirini bulmak icin)');
+    debugSourceRows(15);
+  }
 
   Logger.log('');
   Logger.log('==================================================');
@@ -1058,13 +1167,19 @@ function debugSyncMapping() {
     const targetSheet = targetSs.getSheetByName(SYNC.TARGET_SHEET_NAME);
     if (!targetSheet) { Logger.log('HATA: Hedef sekme bulunamadi: ' + SYNC.TARGET_SHEET_NAME); return; }
 
-    const sourceHeaders = sourceSheet.getRange(SYNC.SOURCE_HEADER_ROW, 1, 1, sourceSheet.getLastColumn())
-        .getDisplayValues()[0].map(function (h) { return String(h || '').trim(); });
     const targetHeaders = targetSheet.getRange(SYNC.TARGET_HEADER_ROW, 1, 1, targetSheet.getLastColumn())
         .getDisplayValues()[0].map(function (h) { return String(h || '').trim(); });
 
+    const scanRows = Math.min(sourceSheet.getLastRow(), SYNC.SOURCE_HEADER_SCAN_ROWS || 25);
+    const scan = sourceSheet.getRange(1, 1, scanRows, sourceSheet.getLastColumn()).getDisplayValues();
+    const headerInfo = resolveSourceHeaderRow_(scan, targetHeaders);
+    const sourceHeaders = scan[headerInfo.row - 1].map(function (h) { return String(h || '').trim(); });
+
     Logger.log('KAYNAK sekme : ' + sourceSheet.getName() + ' (gid ' + sourceSheet.getSheetId() + ')');
-    Logger.log('KAYNAK basliklari (' + sourceHeaders.length + '): ' + sourceHeaders.join(' | '));
+    Logger.log('KAYNAK baslik satiri: ' + headerInfo.row +
+               (headerInfo.manual ? ' (elle ayarlandi)' : ' (otomatik bulundu, puan ' + headerInfo.score + ')'));
+    Logger.log('KAYNAK basliklari (' + sourceHeaders.filter(String).length + ' dolu): ' +
+               sourceHeaders.filter(String).join(' | '));
     Logger.log('HEDEF  basliklari (' + targetHeaders.length + '): ' + targetHeaders.join(' | '));
 
     const mapping = buildSyncMapping_(targetHeaders, sourceHeaders);
