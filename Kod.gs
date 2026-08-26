@@ -106,10 +106,27 @@ const SYNC = {
     'alpay.mutlu@valeo.com',
     'resul.akbulut@valeo.com',
     'cem.kapitan@valeo.com',
-    'yasar.kisa@valeo.com'
+    'yasar.kisa@valeo.com',
+    'ahmet.dundar@valeo.com'
   ],
   NOTIFY_ACTION_OWNER: 'Alpay Mutlu',   // Aksiyon takibi rica edilen kişi
-  NOTIFY_MAX_CARDS: 20                  // E-postada en fazla kaç kart gösterilsin
+  NOTIFY_MAX_CARDS: 20,                 // E-postada en fazla kaç kart gösterilsin
+
+  // --- 60 günlük IS Validation süresi ---
+  // Kayıt eklendikten sonra bu süre içinde IS Status DONE olmazsa aynı listeye
+  // hatırlatma e-postası gider. Takip "Sync Tracking" sekmesinde tutulur.
+  VALIDATION_DEADLINE_DAYS: 60,
+  TRACKING_SHEET_NAME: 'Sync Tracking',
+  REMINDER_HOUR: 9,                     // Günlük kontrolün çalışacağı saat
+  REMINDER_REPEAT_DAYS: 0,              // 0 = tek hatırlatma; >0 ise bu aralıkla tekrarlar
+
+  // --- Kaynakta silinen kayıt tespiti ---
+  // Her çalıştırmada kaynak anahtarlarının fotoğrafı saklanır. Bir kayıt
+  // kaynaktan silinmiş ve hedefte hâlâ duruyorsa bilgilendirme e-postası gider.
+  // Hedeften ASLA satır silinmez — yalnızca bilgi verilir.
+  SNAPSHOT_SHEET_NAME: 'Source Snapshot',
+  DELETION_ALERT_ENABLED: true,
+  DELETION_MAX_ALERT: 50                // Bundan fazlası okuma anomalisi sayılır, mail atılmaz
 };
 
 /**
@@ -759,6 +776,7 @@ function _kurulumYap(bumpType) {
   var info = bumpVersion(bumpType);
   installWeeklyTrigger();
   installSyncTrigger();
+  installReminderTrigger();
   clearCache();
   Logger.log('Kurulum tamamlandi. Surum ' + info.version + ' — tetikleyiciler yeniden kuruldu.');
   return info;
@@ -954,6 +972,20 @@ function syncNewRows(silent) {
       Object.keys(baseline).forEach(function (k) { existingKeys[k] = true; baselineCount++; });
     }
 
+    // Kaynaktaki tüm geçerli anahtarlar — silinme tespiti için fotoğraf
+    const currentSourceKeys = {};
+    if (useKey) {
+      for (let i = sourceHeaderRow; i < sourceValues.length; i++) {
+        const k = String(sourceValues[i][keySourceIndex] || '').trim();
+        if (isUsableKey_(k)) currentSourceKeys[k.toUpperCase()] = k;
+      }
+      try {
+        checkDeletedSourceRecords_(targetSs, currentSourceKeys, targetValues, targetHeaders, keyTargetIndex);
+      } catch (deleteError) {
+        Logger.log('Silinme kontrolu yapilamadi: ' + deleteError);
+      }
+    }
+
     // Sabit değerlerin hedefteki kolon indeksleri (ör. IS Status → Not in Liberation)
     const targetNormHeaders = targetHeaders.map(normalizeHeader_);
     const defaults = [];
@@ -1039,6 +1071,13 @@ function syncNewRows(silent) {
 
     logSync_(targetSs, newRows.length, skipped, addedKeys, mapping, useKey, warning);
     clearCache();
+
+    // 60 günlük süre takibi — kayıtların eklenme tarihi burada saklanır.
+    try {
+      trackNewRecords_(targetSs, targetHeaders, newRows);
+    } catch (trackError) {
+      Logger.log('Sure takibi yazilamadi: ' + trackError);
+    }
 
     // Bildirim e-postası — gönderilemezse aktarım yine de başarılı sayılır.
     try {
@@ -1515,6 +1554,27 @@ function buildNewRecordsHtml_(headers, rows, lastIndex, refIndex, projectIndex, 
             ' kayit daha. Tamamini panelde goruntuleyebilirsiniz.</div>';
   }
 
+  // --- 60 günlük süre sayacı ---
+  const days = SYNC.VALIDATION_DEADLINE_DAYS || 60;
+  const deadline = new Date();
+  deadline.setDate(deadline.getDate() + days);
+  const deadlineText = Utilities.formatDate(deadline, Session.getScriptTimeZone() || 'Europe/Istanbul', 'dd.MM.yyyy');
+
+  html += '<div style="background:#ffffff;margin-top:16px;border:1px solid #e3e8ee;border-radius:10px;' +
+          'padding:20px;text-align:center;">' +
+          '<div style="font-size:34px;line-height:1;">&#8987;</div>' +
+          '<div style="font-size:12.5px;color:#6c757d;margin-top:8px;">' +
+          'IS Status\'un <b>DONE</b> olmasi icin kalan sure</div>' +
+          '<div style="font-size:34px;font-weight:800;color:#002b49;margin-top:4px;line-height:1.1;">' +
+          days + '<span style="font-size:16px;font-weight:600;color:#6c757d;"> gun</span></div>' +
+          '<table role="presentation" style="width:100%;border-collapse:collapse;margin-top:14px;"><tr>' +
+          '<td style="height:10px;background:#e2e8f0;border-radius:6px;font-size:0;line-height:0;">&nbsp;</td>' +
+          '</tr></table>' +
+          '<div style="font-size:11.5px;color:#9aa5b1;margin-top:10px;">' +
+          'Son tarih: <b style="color:#5c6672;">' + esc(deadlineText) + '</b> &middot; ' +
+          'Bu tarihe kadar onay alinmazsa otomatik hatirlatma gonderilir.</div>' +
+          '</div>';
+
   // --- Buton ve dipnot ---
   if (dashboardUrl) {
     html += '<div style="text-align:center;margin-top:20px;">' +
@@ -1558,12 +1618,32 @@ function SYNC_DURUM() {
              ' (baslik dahil)');
   Logger.log('Baseline kayit sayisi    : ' + Object.keys(readBaselineKeys_(targetSs)).length);
 
-  const triggers = ScriptApp.getProjectTriggers().filter(function (t) {
-    return t.getHandlerFunction() === 'syncNewRows';
-  });
-  Logger.log('Otomatik tetikleyici     : ' + (triggers.length
+  Logger.log('Kaynak fotografi         : ' + Object.keys(readSnapshotKeys_(targetSs)).length + ' kayit');
+
+  const allTriggers = ScriptApp.getProjectTriggers();
+  const syncT = allTriggers.filter(function (t) { return t.getHandlerFunction() === 'syncNewRows'; });
+  const remT  = allTriggers.filter(function (t) { return t.getHandlerFunction() === 'checkValidationDeadlines'; });
+  Logger.log('Aktarim tetikleyicisi    : ' + (syncT.length
       ? 'KURULU (' + (SYNC.TRIGGER_MINUTES || 15) + ' dakikada bir)'
       : 'YOK — installSyncTrigger() calistirin'));
+  Logger.log('Sure kontrolu tetikleyici: ' + (remT.length
+      ? 'KURULU (her gun ~' + (SYNC.REMINDER_HOUR || 9) + ':00)'
+      : 'YOK — installReminderTrigger() calistirin'));
+
+  // --- 60 günlük süre takibi ---
+  const trackSheet = targetSs.getSheetByName(SYNC.TRACKING_SHEET_NAME);
+  if (trackSheet && trackSheet.getLastRow() > 1) {
+    const rows = trackSheet.getRange(2, 1, trackSheet.getLastRow() - 1, 7).getDisplayValues();
+    const counts = {};
+    rows.forEach(function (r) {
+      const st = String(r[TRACK_COL.STATE] || '(bos)').trim();
+      counts[st] = (counts[st] || 0) + 1;
+    });
+    Logger.log('Sure takibi (' + (SYNC.VALIDATION_DEADLINE_DAYS || 60) + ' gun) : ' + rows.length + ' kayit');
+    Object.keys(counts).forEach(function (k) { Logger.log('  ' + k + ' : ' + counts[k]); });
+  } else {
+    Logger.log('Sure takibi              : henuz kayit yok');
+  }
 
   const logSheet = targetSs.getSheetByName(SYNC.LOG_SHEET_NAME);
   if (logSheet && logSheet.getLastRow() > 1) {
@@ -1578,6 +1658,484 @@ function SYNC_DURUM() {
 
   Logger.log('Bildirim alicilari       : ' + (SYNC.NOTIFY_RECIPIENTS || []).join(', '));
   Logger.log('=============================');
+}
+
+/* ============================================================================
+ *  60 GÜNLÜK IS VALIDATION SÜRE TAKİBİ
+ *  Aktarılan her kaydın eklenme tarihi "Sync Tracking" sekmesinde tutulur.
+ *  Günlük kontrol, süresi dolan ve hâlâ DONE olmayan kayıtlar için aynı
+ *  dağıtım listesine hatırlatma e-postası gönderir.
+ * ========================================================================== */
+
+const TRACK_COL = { REF: 0, PROJECT: 1, ADDED: 2, DEADLINE: 3, STATE: 4, REMINDED: 5, CLOSED: 6 };
+
+function getOrCreateTrackingSheet_(targetSs) {
+  let sheet = targetSs.getSheetByName(SYNC.TRACKING_SHEET_NAME);
+  if (!sheet) {
+    sheet = targetSs.insertSheet(SYNC.TRACKING_SHEET_NAME);
+    sheet.getRange(1, 1, 1, 7).setValues([[
+      'Bursa Ref', 'Project Name', 'Eklenme Tarihi', 'Son Tarih',
+      'Durum', 'Hatırlatma Tarihi', 'Kapanış Tarihi'
+    ]]).setFontWeight('bold').setBackground('#002b49').setFontColor('#FFFFFF');
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(1, 120); sheet.setColumnWidth(2, 280);
+    sheet.setColumnWidth(3, 130); sheet.setColumnWidth(4, 130);
+    sheet.setColumnWidth(5, 110); sheet.setColumnWidth(6, 130); sheet.setColumnWidth(7, 130);
+  }
+  return sheet;
+}
+
+/** Yeni aktarılan kayıtları süre takibine ekler. */
+function trackNewRecords_(targetSs, targetHeaders, newRows) {
+  if (!newRows.length) return;
+
+  const tz = Session.getScriptTimeZone() || 'Europe/Istanbul';
+  const norm = targetHeaders.map(normalizeHeader_);
+  const refIndex = norm.indexOf(normalizeHeader_(SYNC.KEY_TARGET_HEADER));
+  const projectIndex = norm.indexOf(normalizeHeader_('Project Name'));
+  if (refIndex === -1) return;
+
+  const days = SYNC.VALIDATION_DEADLINE_DAYS || 60;
+  const now = new Date();
+  const deadline = new Date();
+  deadline.setDate(deadline.getDate() + days);
+
+  const sheet = getOrCreateTrackingSheet_(targetSs);
+  const rows = newRows.map(function (row) {
+    return [
+      String(row[refIndex] || '').trim(),
+      projectIndex !== -1 ? String(row[projectIndex] || '').trim() : '',
+      Utilities.formatDate(now, tz, 'dd.MM.yyyy HH:mm'),
+      Utilities.formatDate(deadline, tz, 'dd.MM.yyyy'),
+      'Bekliyor', '', ''
+    ];
+  });
+
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 7).setValues(rows);
+  Logger.log(rows.length + ' kayit ' + days + ' gunluk sure takibine alindi.');
+}
+
+/**
+ * GÜNLÜK KONTROL — süresi dolan ve hâlâ DONE olmayan kayıtlar için hatırlatma
+ * gönderir; DONE olanları kapatır. Tetikleyici bu fonksiyonu çağırır.
+ */
+function checkValidationDeadlines() {
+  const tz = Session.getScriptTimeZone() || 'Europe/Istanbul';
+  const todayStamp = Utilities.formatDate(new Date(), tz, 'dd.MM.yyyy');
+  const now = startOfDay_(new Date());
+  const days = SYNC.VALIDATION_DEADLINE_DAYS || 60;
+
+  const targetSs = SpreadsheetApp.openByUrl(CONFIG.SHEET_URL);
+  const targetSheet = targetSs.getSheetByName(SYNC.TARGET_SHEET_NAME);
+  if (!targetSheet) { Logger.log('HATA: Hedef sekme bulunamadi.'); return; }
+
+  const sheet = targetSs.getSheetByName(SYNC.TRACKING_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) { Logger.log('Sure takibinde kayit yok.'); return; }
+
+  // Hedef sayfadaki güncel IS Status değerleri
+  const targetValues = targetSheet.getDataRange().getDisplayValues();
+  const targetHeaders = targetValues[SYNC.TARGET_HEADER_ROW - 1].map(function (h) { return String(h || '').trim(); });
+  const tNorm = targetHeaders.map(normalizeHeader_);
+  const refIndex = tNorm.indexOf(normalizeHeader_(SYNC.KEY_TARGET_HEADER));
+  const isStatusIndex = tNorm.indexOf(normalizeHeader_('IS Status'));
+  if (refIndex === -1 || isStatusIndex === -1) { Logger.log('HATA: Bursa Ref / IS Status kolonu bulunamadi.'); return; }
+
+  const statusByRef = {};
+  for (let i = SYNC.TARGET_HEADER_ROW; i < targetValues.length; i++) {
+    const ref = String(targetValues[i][refIndex] || '').trim().toUpperCase();
+    if (ref) statusByRef[ref] = String(targetValues[i][isStatusIndex] || '').trim();
+  }
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getDisplayValues();
+  const overdue = [];
+  let closed = 0;
+  let changed = false;
+
+  values.forEach(function (row, i) {
+    const ref = String(row[TRACK_COL.REF] || '').trim();
+    if (!ref) return;
+    const state = String(row[TRACK_COL.STATE] || '').trim();
+    if (state === 'Tamamlandı') return;
+
+    const currentStatus = statusByRef[ref.toUpperCase()];
+
+    // IS Status DONE olduysa takibi kapat
+    if (currentStatus && classifyStatus_(currentStatus) === 'DONE') {
+      row[TRACK_COL.STATE] = 'Tamamlandı';
+      row[TRACK_COL.CLOSED] = todayStamp;
+      closed++;
+      changed = true;
+      return;
+    }
+
+    const added = parseFlexibleDate_(String(row[TRACK_COL.ADDED] || '').split(' ')[0]);
+    if (!added) return;
+    const elapsed = Math.floor((now - startOfDay_(added)) / 86400000);
+    if (elapsed < days) return;
+
+    // Daha önce hatırlatıldıysa: tekrar aralığı dolmadıkça atla
+    if (state === 'Hatırlatıldı') {
+      const repeat = SYNC.REMINDER_REPEAT_DAYS || 0;
+      if (!repeat) return;
+      const lastReminder = parseFlexibleDate_(String(row[TRACK_COL.REMINDED] || '').split(' ')[0]);
+      if (lastReminder && Math.floor((now - startOfDay_(lastReminder)) / 86400000) < repeat) return;
+    }
+
+    overdue.push({
+      ref: ref,
+      project: String(row[TRACK_COL.PROJECT] || '').trim(),
+      added: String(row[TRACK_COL.ADDED] || '').trim(),
+      deadline: String(row[TRACK_COL.DEADLINE] || '').trim(),
+      elapsed: elapsed,
+      status: currentStatus || '(kayit bulunamadi)',
+      rowIndex: i
+    });
+  });
+
+  if (overdue.length) {
+    try {
+      sendDeadlineReminder_(overdue, todayStamp);
+      overdue.forEach(function (item) {
+        values[item.rowIndex][TRACK_COL.STATE] = 'Hatırlatıldı';
+        values[item.rowIndex][TRACK_COL.REMINDED] = todayStamp;
+      });
+      changed = true;
+    } catch (e) {
+      Logger.log('Hatirlatma gonderilemedi: ' + e);
+    }
+  }
+
+  if (changed) sheet.getRange(2, 1, values.length, 7).setValues(values);
+
+  Logger.log('Sure kontrolu: ' + overdue.length + ' hatirlatma, ' + closed + ' kayit tamamlandi olarak kapatildi.');
+  return { overdue: overdue.length, closed: closed };
+}
+
+function sendDeadlineReminder_(items, stamp) {
+  const recipients = (SYNC.NOTIFY_RECIPIENTS || []).filter(String);
+  if (!recipients.length) return;
+
+  const subject = items.length === 1
+      ? 'IS Validation GECIKME — ' + items[0].ref + ' (' + items[0].elapsed + ' gun)'
+      : 'IS Validation GECIKME — ' + items.length + ' proje onay bekliyor';
+
+  MailApp.sendEmail({
+    to: recipients.join(','),
+    subject: subject,
+    htmlBody: buildReminderHtml_(items, stamp),
+    name: 'IS Validation Dashboard'
+  });
+  Logger.log('Hatirlatma gonderildi: ' + recipients.join(', '));
+}
+
+function buildReminderHtml_(items, stamp) {
+  let dashboardUrl = '';
+  try { dashboardUrl = ScriptApp.getService().getUrl() || ''; } catch (e) { dashboardUrl = ''; }
+
+  const days = SYNC.VALIDATION_DEADLINE_DAYS || 60;
+  const owner = SYNC.NOTIFY_ACTION_OWNER || '';
+  const esc = function (v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+
+  let html = '<div style="font-family:Segoe UI,Arial,sans-serif;background:#f4f7f6;padding:22px 12px;">';
+  html += '<div style="max-width:680px;margin:0 auto;">';
+
+  html += '<div style="background:#7a1620;border-radius:12px 12px 0 0;padding:20px 24px;">' +
+          '<div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:#ffb3b3;">' +
+          'IS VALIDATION DASHBOARD &middot; GECIKME UYARISI</div>' +
+          '<div style="font-size:20px;font-weight:700;color:#ffffff;margin-top:6px;">' +
+          items.length + ' projede ' + days + ' gunluk sure doldu</div>' +
+          '<div style="font-size:12px;color:#f0c9cc;margin-top:8px;">Kontrol tarihi: ' + esc(stamp) + '</div>' +
+          '</div>';
+
+  html += '<div style="background:#fdecea;border-left:4px solid #dc3545;padding:16px 20px;font-size:13.5px;color:#5c1a1f;">' +
+          'Proje eklendigi gunden bu yana <b>' + days + ' gun gecti</b> ve <b>IS onayi alinmadi</b>. ' +
+          'Lutfen kontaklariniz ile iletisime gecerek IS Validation surecini tamamlayiniz.' +
+          (owner ? '<br><br>IS Validation sureci icin <b>' + esc(owner) + '</b>\'dan aksiyonlarin takip edilmesini rica ederiz.' : '') +
+          '</div>';
+
+  const limit = Math.min(items.length, SYNC.NOTIFY_MAX_CARDS || 20);
+  for (let i = 0; i < limit; i++) {
+    const it = items[i];
+    const over = it.elapsed - days;
+    html += '<div style="background:#ffffff;margin-top:14px;border:1px solid #e3e8ee;border-radius:10px;overflow:hidden;">';
+    html += '<div style="background:#7a1620;color:#ffffff;padding:11px 16px;font-size:14px;font-weight:700;">' +
+            esc(it.ref) + (it.project ? ' &middot; ' + esc(it.project) : '') + '</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12.5px;">';
+    const line = function (label, value, tone) {
+      return '<tr><td style="padding:8px 16px;color:#002b49;font-weight:600;width:42%;border-bottom:1px solid #eef2f5;">' +
+             label + '</td><td style="padding:8px 16px;border-bottom:1px solid #eef2f5;' +
+             (tone || 'color:#333;') + '">' + value + '</td></tr>';
+    };
+    html += line('Eklenme tarihi', esc(it.added));
+    html += line('Hedef tarih', esc(it.deadline), 'color:#dc3545;font-weight:700;');
+    html += line('Gecen sure', it.elapsed + ' gun' + (over > 0 ? ' (' + over + ' gun asim)' : ''),
+                 'color:#dc3545;font-weight:700;');
+    html += line('Guncel IS Status', esc(it.status), 'color:#b26a00;font-weight:700;');
+    html += '</table></div>';
+  }
+
+  if (items.length > limit) {
+    html += '<div style="background:#ffffff;margin-top:12px;padding:12px 16px;border:1px solid #e3e8ee;' +
+            'border-radius:10px;font-size:12.5px;color:#6c757d;">ve ' + (items.length - limit) +
+            ' proje daha. Tamamini panelde goruntuleyebilirsiniz.</div>';
+  }
+
+  html += '<div style="background:#ffffff;margin-top:16px;border:1px solid #e3e8ee;border-radius:10px;' +
+          'padding:20px;text-align:center;">' +
+          '<div style="font-size:34px;line-height:1;">&#8987;</div>' +
+          '<div style="font-size:12.5px;color:#6c757d;margin-top:8px;">' + days + ' gunluk sure</div>' +
+          '<div style="font-size:26px;font-weight:800;color:#dc3545;margin-top:4px;">DOLDU</div>' +
+          '<table role="presentation" style="width:100%;border-collapse:collapse;margin-top:14px;"><tr>' +
+          '<td style="height:10px;background:#dc3545;border-radius:6px;font-size:0;line-height:0;">&nbsp;</td>' +
+          '</tr></table></div>';
+
+  if (dashboardUrl) {
+    html += '<div style="text-align:center;margin-top:20px;">' +
+            '<a href="' + dashboardUrl + '" style="background:#dc3545;color:#ffffff;padding:12px 26px;' +
+            'border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">' +
+            'Panelde Incele</a></div>';
+  }
+  html += '<div style="text-align:center;color:#9aa5b1;font-size:11px;margin-top:18px;line-height:1.6;">' +
+          'Bu e-posta IS Validation Dashboard tarafindan otomatik uretilmistir.<br>' +
+          'IS Status DONE olarak isaretlendiginde hatirlatma otomatik durur.</div>';
+
+  html += '</div></div>';
+  return html;
+}
+
+/* ============================================================================
+ *  KAYNAKTA SİLİNEN KAYIT TESPİTİ
+ *  Her çalıştırmada kaynak anahtarlarının fotoğrafı saklanır. Önceki fotoğrafta
+ *  olup artık bulunmayan bir kayıt hedefte hâlâ duruyorsa bilgi e-postası gider.
+ *  Hedeften satır SİLİNMEZ — karar ekibe bırakılır.
+ * ========================================================================== */
+
+function readSnapshotKeys_(targetSs) {
+  const sheet = targetSs.getSheetByName(SYNC.SNAPSHOT_SHEET_NAME);
+  const keys = {};
+  if (!sheet || sheet.getLastRow() < 2) return keys;
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues().forEach(function (row) {
+    const k = String(row[0] || '').trim().toUpperCase();
+    if (k) keys[k] = true;
+  });
+  return keys;
+}
+
+function writeSnapshotKeys_(targetSs, keyMap) {
+  let sheet = targetSs.getSheetByName(SYNC.SNAPSHOT_SHEET_NAME);
+  if (!sheet) sheet = targetSs.insertSheet(SYNC.SNAPSHOT_SHEET_NAME);
+  const values = Object.keys(keyMap).map(function (k) { return [keyMap[k]]; });
+
+  sheet.clear();
+  sheet.getRange(1, 1, 1, 2).setValues([[SYNC.KEY_TARGET_HEADER,
+      'Son fotograf: ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Europe/Istanbul', 'dd.MM.yyyy HH:mm')]])
+      .setFontWeight('bold').setBackground('#002b49').setFontColor('#FFFFFF');
+  sheet.setFrozenRows(1);
+  if (values.length) sheet.getRange(2, 1, values.length, 1).setValues(values);
+}
+
+function checkDeletedSourceRecords_(targetSs, currentSourceKeys, targetValues, targetHeaders, keyTargetIndex) {
+  if (!SYNC.DELETION_ALERT_ENABLED) return;
+
+  const previous = readSnapshotKeys_(targetSs);
+  const previousCount = Object.keys(previous).length;
+
+  // İlk çalıştırma: karşılaştıracak fotoğraf yok, sadece kaydet.
+  if (!previousCount) {
+    writeSnapshotKeys_(targetSs, currentSourceKeys);
+    Logger.log('Kaynak fotografi ilk kez olusturuldu (' + Object.keys(currentSourceKeys).length + ' kayit).');
+    return;
+  }
+
+  const missing = Object.keys(previous).filter(function (k) { return !currentSourceKeys[k]; });
+  if (!missing.length) {
+    writeSnapshotKeys_(targetSs, currentSourceKeys);
+    return;
+  }
+
+  // Güvenlik: anormal büyüklükte kayıp okuma hatası olabilir, mail atma.
+  if (missing.length > (SYNC.DELETION_MAX_ALERT || 50)) {
+    Logger.log('UYARI: ' + missing.length + ' kayit kaynakta bulunamadi. Bu bir okuma anomalisi olabilir, ' +
+               'bildirim gonderilmedi. Fotograf guncellenmedi.');
+    return;
+  }
+
+  // Hedefte hâlâ duran silinmiş kayıtları topla
+  const tNorm = targetHeaders.map(normalizeHeader_);
+  const projectIndex = tNorm.indexOf(normalizeHeader_('Project Name'));
+  const isStatusIndex = tNorm.indexOf(normalizeHeader_('IS Status'));
+
+  const items = [];
+  for (let i = SYNC.TARGET_HEADER_ROW; i < targetValues.length; i++) {
+    const ref = String(targetValues[i][keyTargetIndex] || '').trim();
+    if (!ref) continue;
+    if (missing.indexOf(ref.toUpperCase()) === -1) continue;
+    items.push({
+      ref: ref,
+      project: projectIndex !== -1 ? String(targetValues[i][projectIndex] || '').trim() : '',
+      status: isStatusIndex !== -1 ? String(targetValues[i][isStatusIndex] || '').trim() : '',
+      row: i + 1
+    });
+  }
+
+  if (items.length) {
+    const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Europe/Istanbul', 'dd.MM.yyyy HH:mm');
+    try {
+      sendDeletionAlert_(items, stamp);
+      markTrackingDeleted_(targetSs, items);
+    } catch (e) {
+      Logger.log('Silinme bildirimi gonderilemedi: ' + e);
+    }
+  } else {
+    Logger.log(missing.length + ' kayit kaynaktan silinmis ancak hedefte bulunmuyor — bildirim gerekmedi.');
+  }
+
+  writeSnapshotKeys_(targetSs, currentSourceKeys);
+}
+
+/** Silinen kayıtları süre takibinde işaretler; hatırlatma göndermeye devam etmesin. */
+function markTrackingDeleted_(targetSs, items) {
+  const sheet = targetSs.getSheetByName(SYNC.TRACKING_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return;
+
+  const refs = {};
+  items.forEach(function (it) { refs[it.ref.toUpperCase()] = true; });
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getDisplayValues();
+  let changed = false;
+  values.forEach(function (row) {
+    const ref = String(row[TRACK_COL.REF] || '').trim().toUpperCase();
+    if (ref && refs[ref] && String(row[TRACK_COL.STATE] || '') !== 'Tamamlandı') {
+      row[TRACK_COL.STATE] = 'Kaynakta silindi';
+      changed = true;
+    }
+  });
+  if (changed) sheet.getRange(2, 1, values.length, 7).setValues(values);
+}
+
+function sendDeletionAlert_(items, stamp) {
+  const recipients = (SYNC.NOTIFY_RECIPIENTS || []).filter(String);
+  if (!recipients.length) return;
+
+  const subject = items.length === 1
+      ? 'IS Validation — Kaynakta silinen kayit: ' + items[0].ref
+      : 'IS Validation — Kaynakta silinen ' + items.length + ' kayit';
+
+  MailApp.sendEmail({
+    to: recipients.join(','),
+    subject: subject,
+    htmlBody: buildDeletionHtml_(items, stamp),
+    name: 'IS Validation Dashboard'
+  });
+  Logger.log('Silinme bildirimi gonderildi: ' + items.length + ' kayit.');
+}
+
+function buildDeletionHtml_(items, stamp) {
+  let dashboardUrl = '';
+  try { dashboardUrl = ScriptApp.getService().getUrl() || ''; } catch (e) { dashboardUrl = ''; }
+  const esc = function (v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+
+  let html = '<div style="font-family:Segoe UI,Arial,sans-serif;background:#f4f7f6;padding:22px 12px;">';
+  html += '<div style="max-width:680px;margin:0 auto;">';
+
+  html += '<div style="background:#4a4f57;border-radius:12px 12px 0 0;padding:20px 24px;">' +
+          '<div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:#c9d1d9;">' +
+          'IS VALIDATION DASHBOARD &middot; KAYIT SILINDI</div>' +
+          '<div style="font-size:20px;font-weight:700;color:#ffffff;margin-top:6px;">' +
+          items.length + ' kayit kaynak dosyadan silindi</div>' +
+          '<div style="font-size:12px;color:#b6bec7;margin-top:8px;">Tespit tarihi: ' + esc(stamp) + '</div>' +
+          '</div>';
+
+  html += '<div style="background:#eef1f4;border-left:4px solid #6c757d;padding:16px 20px;font-size:13.5px;color:#3d454d;">' +
+          'Asagidaki kayitlar <b>IAM Projects Sales &amp; Turnovers</b> dosyasindan silinmis, ' +
+          'ancak <b>IS Validation takip sayfasinda duruyor</b>.<br><br>' +
+          'Takip sayfasindan otomatik silme <b>yapilmadi</b>. Kayitlarin gecerliligini kontrol edip ' +
+          'gerekiyorsa manuel olarak kaldirmanizi rica ederiz.' +
+          '</div>';
+
+  const limit = Math.min(items.length, SYNC.NOTIFY_MAX_CARDS || 20);
+  for (let i = 0; i < limit; i++) {
+    const it = items[i];
+    html += '<div style="background:#ffffff;margin-top:14px;border:1px solid #e3e8ee;border-radius:10px;overflow:hidden;">';
+    html += '<div style="background:#4a4f57;color:#ffffff;padding:11px 16px;font-size:14px;font-weight:700;">' +
+            esc(it.ref) + (it.project ? ' &middot; ' + esc(it.project) : '') + '</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12.5px;">';
+    const line = function (label, value, tone) {
+      return '<tr><td style="padding:8px 16px;color:#002b49;font-weight:600;width:42%;border-bottom:1px solid #eef2f5;">' +
+             label + '</td><td style="padding:8px 16px;border-bottom:1px solid #eef2f5;' +
+             (tone || 'color:#333;') + '">' + value + '</td></tr>';
+    };
+    html += line('Bursa Ref', esc(it.ref));
+    if (it.project) html += line('Project Name', esc(it.project));
+    html += line('Guncel IS Status', esc(it.status || '—'), 'color:#b26a00;font-weight:700;');
+    html += line('Takip sayfasi satiri', it.row);
+    html += line('Durum', 'Kaynak dosyada bulunamadi', 'color:#6c757d;font-weight:700;');
+    html += '</table></div>';
+  }
+
+  if (items.length > limit) {
+    html += '<div style="background:#ffffff;margin-top:12px;padding:12px 16px;border:1px solid #e3e8ee;' +
+            'border-radius:10px;font-size:12.5px;color:#6c757d;">ve ' + (items.length - limit) + ' kayit daha.</div>';
+  }
+
+  if (dashboardUrl) {
+    html += '<div style="text-align:center;margin-top:20px;">' +
+            '<a href="' + dashboardUrl + '" style="background:#4a4f57;color:#ffffff;padding:12px 26px;' +
+            'border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">' +
+            'Panelde Incele</a></div>';
+  }
+  html += '<div style="text-align:center;color:#9aa5b1;font-size:11px;margin-top:18px;line-height:1.6;">' +
+          'Bu e-posta IS Validation Dashboard tarafindan otomatik uretilmistir.</div>';
+
+  html += '</div></div>';
+  return html;
+}
+
+/** Günlük süre kontrolünü kuran tetikleyici. */
+function installReminderTrigger() {
+  removeReminderTrigger();
+  const hour = SYNC.REMINDER_HOUR || 9;
+  ScriptApp.newTrigger('checkValidationDeadlines').timeBased().atHour(hour).everyDays(1).create();
+  const message = 'Sure kontrolu tetikleyicisi kuruldu (her gun ~' + hour + ':00).';
+  Logger.log(message);
+  return message;
+}
+
+function removeReminderTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'checkValidationDeadlines') ScriptApp.deleteTrigger(t);
+  });
+  return 'Sure kontrolu tetikleyicileri kaldirildi.';
+}
+
+/** TEST — hatirlatma e-postasinin gorunumunu ornek kayitla gonderir. Yazma yapmaz. */
+function testReminderMail() {
+  const days = SYNC.VALIDATION_DEADLINE_DAYS || 60;
+  notifyReminderSample_(days);
+}
+
+function notifyReminderSample_(days) {
+  const tz = Session.getScriptTimeZone() || 'Europe/Istanbul';
+  sendDeadlineReminder_([{
+    ref: 'DENEME 999', project: 'DENEME KITI',
+    added: '26.06.2026 11:58', deadline: '25.08.2026',
+    elapsed: days + 3, status: 'Not in Liberation', rowIndex: 0
+  }], Utilities.formatDate(new Date(), tz, 'dd.MM.yyyy'));
+  Logger.log('ORNEK hatirlatma maili gonderildi. Hicbir kayit degistirilmedi.');
+}
+
+/** TEST — silinme bildiriminin gorunumunu ornek kayitla gonderir. Yazma yapmaz. */
+function testDeletionMail() {
+  sendDeletionAlert_([{
+    ref: 'DENEME 999', project: 'DENEME KITI', status: 'Not in Liberation', row: 47
+  }], Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Europe/Istanbul', 'dd.MM.yyyy HH:mm'));
+  Logger.log('ORNEK silinme bildirimi gonderildi. Hicbir kayit degistirilmedi.');
 }
 
 /** Senkronizasyonu düzenli aralıkla çalıştıran tetikleyiciyi kurar. */
