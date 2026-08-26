@@ -17,6 +17,8 @@ trend, sorumluluk dağılımı ve veri kalitesi** görünümleri sunar.
 - [Kolon eşleme (otomatik algılama)](#kolon-eşleme-otomatik-algılama)
 - [Yapılandırma](#yapılandırma)
 - [Haftalık yönetici e-postası](#haftalık-yönetici-e-postası)
+- [Standart modüller (SETUP_CLAUDE.md)](#standart-modüller-setup_claudemd)
+- [Kaynak dosyadan otomatik aktarım](#kaynak-dosyadan-otomatik-aktarım)
 - [Yerel önizleme](#yerel-önizleme)
 - [Tanımlar](#tanımlar)
 - [Sorun giderme](#sorun-giderme)
@@ -42,6 +44,22 @@ trend, sorumluluk dağılımı ve veri kalitesi** görünümleri sunar.
   (ilgili kolon sayfada varsa otomatik açılır).
 - **Veri kalitesi paneli** — eksik yıl, boş status, okunamayan sevkiyat tarihi, eksik Order,
   mükerrer Bursa Ref. Her bulgu tıklanınca ilgili kayıtlar tabloya filtrelenir.
+
+### Standart modüller
+- **Geri bildirim widget'ı** — sol altta sabit "Geri Bildirim" butonu; tür (Bug / İyileştirme),
+  öncelik (Düşük / Orta / Acil) ve mesaj alanları ile kayıtlar veri dosyasındaki
+  **`Feedback`** sekmesine yazılır.
+- **Giriş/çıkış loglama** — her oturum `<PROJE>_GirisLoglari` sekmesine kaydedilir;
+  sekme 10 dakikadan uzun arka planda kalırsa oturum kapatılıp yenisi açılır.
+- **Versiyon yönetimi** — üst şeritte beta banner'ı, başlıkta sürüm rozeti;
+  sürüm `kurulumTrigger` / `majorDeploy` ile artırılır.
+
+### Yorumlar
+- Sayfadaki **Comment / Comments / Yorum / Remark / Açıklama** başlıklı tüm kolonlar
+  otomatik yorum olarak tanınır.
+- Yorumu olan satırlarda proje adının yanında 💬 simgesi çıkar.
+- Satıra tıklanınca açılan detay kartında yorumlar en üstte, kolon adıyla birlikte
+  ayrı kartlar hâlinde listelenir.
 
 ### Operasyon
 - Sıralanabilir tablo kolonları, satıra tıklayınca **tüm sayfa kolonlarını gösteren detay penceresi**.
@@ -152,6 +170,83 @@ Bu değerler istemciye `meta.config` içinde gönderilir; arayüzde ayrıca değ
 
 E-posta; KPI tablosu, tamamlama/iptal oranları ve **aksiyon gereken ilk 10 projeyi**
 (geciken → kritik → tıkanmış sırasıyla) ve panele giden bir bağlantıyı içerir.
+
+---
+
+## Standart modüller (SETUP_CLAUDE.md)
+
+Kurum standardındaki üç modül panele entegre edilmiştir.
+
+| Modül | Sunucu tarafı | Arayüz |
+|---|---|---|
+| 1 — Feedback | `submitFeedback(payload)` | `#fb-btn` butonu ve formu |
+| 2 — Giriş/Çıkış log | `createSession`, `logExit`, `_getOrCreateLogSheet` | `SESSION_ID` bloğu |
+| 3 — Versiyon | `getAppVersion`, `bumpVersion`, `setBeta`, `_kurulumYap`, `kurulumTrigger`, `majorDeploy` | `#beta-banner`, `#version-badge` |
+
+Güncellenmesi gereken değişkenler (`Kod.gs` başında):
+
+```javascript
+var FB_SHEET_ID  = '1TagEpz...';               // Feedback + log dosyası
+var PROJECT_NAME = 'IS Validation Dashboard';  // log sekmesi ön eki
+var TIMEOUT_MIN  = 10;                         // oturum zaman aşımı (dk)
+```
+
+Arayüzde sekme adını belirleyen değişken: `var FB_APP_NAME = 'Feedback';`
+
+**Standarda göre yapılan iki uyarlama:**
+- `doGet()` zaten mevcut olduğu için standardın öngördüğü şekilde yalnızca session satırları
+  mevcut `doGet()` içine eklendi; `createSession` hata verirse panel yine de açılır.
+- Şablon etiketleri `"<?= sessionId ?>"` biçiminde tırnak içine alındı. Böylece dosya
+  Apps Script dışında (yerel önizlemede) açıldığında da JavaScript geçerli kalır.
+- Beta banner ve versiyon rozeti Tailwind yerine panelin kendi CSS'i ile yazıldı
+  (projede Tailwind ve sidebar yok); standardın aradığı `#beta-banner`, `#bb-version`,
+  `#version-badge`, `#vb-version`, `#vb-beta-label` kimlikleri korundu.
+
+### Sürüm akışı
+
+| Ne zaman | Fonksiyon | Sonuç |
+|---|---|---|
+| İlk kurulum / küçük deploy | `kurulumTrigger()` | 1.0 → 1.1, tetikleyiciler yeniden kurulur |
+| Büyük deploy | `majorDeploy()` | 1.1 → 2.0 |
+| Beta bitti | `setBeta(false)` | Banner ve BETA rozeti kalkar |
+
+---
+
+## Kaynak dosyadan otomatik aktarım
+
+Kaynak takip dosyasına eklenen yeni satırlar, başlık adları eşleştirilerek hedef
+`Bursa Follow Up` sayfasına eklenir. **Mevcut satırlar hiçbir zaman değiştirilmez.**
+
+### Ayarlar — `Kod.gs` → `SYNC`
+
+| Alan | Açıklama |
+|---|---|
+| `SOURCE_ID` / `SOURCE_GID` | Kaynak dosya ve sekme (URL'deki `#gid=` değeri) |
+| `KEY_TARGET_HEADER` | Mükerrer engelleyen benzersiz anahtar (varsayılan `Bursa Ref`) |
+| `EXCLUDE_TARGET_HEADERS` | Ekibin elle doldurduğu, aktarımdan muaf kolonlar |
+| `MAP` | Otomatik eşleşmeyen kolonlar için `{ 'Hedef Başlık': 'Kaynak Başlık' }` |
+| `DRY_RUN` | `true` → yazmaz, sadece kaç satır ekleneceğini raporlar |
+
+### Kurulum sırası
+
+1. `debugSyncMapping()` çalıştır → **Yürütme günlüğü**'nde kaynak/hedef başlıkları ve
+   otomatik kurulan eşleşme listelenir.
+2. Eşleşmeyen kolon varsa `SYNC.MAP` içine ekle.
+3. `SYNC.DRY_RUN = true` yapıp `syncNewRows()` çalıştır → kaç satır geleceğini gör.
+4. `DRY_RUN = false` yap, `installSyncTrigger()` çalıştır (15 dakikada bir).
+
+### Mükerrer kontrolü
+
+- `KEY_TARGET_HEADER` hedefte bulunursa: anahtar değeri hedefte varsa satır **atlanır**.
+  Aktarım kaç kez çalışırsa çalışsın aynı kayıt iki kez eklenmez.
+- Anahtar bulunamazsa: en son işlenen kaynak satır numarası `ScriptProperties` içinde
+  tutulur ve yalnızca sonrasındaki satırlar aktarılır. Bu mod, kaynak dosyaya satır
+  **araya eklenirse** kayıt atlayabilir — bu nedenle anahtar kolon önerilir.
+
+Her çalıştırma `Sync Log` sekmesine yazılır: zaman, eklenen/atlanan sayısı, kullanılan
+yöntem, kolon eşleşmesi ve eklenen anahtarlar.
+
+Panelin üst şeridindeki **"Yeni Kayıtları Al"** butonu aynı işlemi elle tetikler.
 
 ---
 

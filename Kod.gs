@@ -33,6 +33,49 @@ const CONFIG = {
   REPORT_RISK_LIMIT: 10
 };
 
+/* =============================================================================
+ *  STANDART MODÜL DEĞİŞKENLERİ (SETUP_CLAUDE.md)
+ *  FB_SHEET_ID   : Feedback ve giriş loglarının toplandığı merkezi spreadsheet.
+ *                  Burada panelin kendi veri dosyası kullanılıyor.
+ *  PROJECT_NAME  : Log sekmesi adının ön eki.
+ *  TIMEOUT_MIN   : Sekme arka planda bu süreyi aşarsa oturum kapanmış sayılır.
+ * ========================================================================== */
+var FB_SHEET_ID  = '1TagEpzdo5B3vBsca151ks18jZjOEkV5WhDTX40njo8I';
+var PROJECT_NAME = 'IS Validation Dashboard';
+var LOG_SHEET    = PROJECT_NAME + '_GirisLoglari';
+var TIMEOUT_MIN  = 10;
+
+/* =============================================================================
+ *  MODÜL 4 — KAYNAK → HEDEF OTOMATİK AKTARIM AYARLARI
+ *  Kaynak dosyaya yeni satır eklendiğinde, eşleşen kolonlar hedef takip
+ *  sayfasına otomatik kopyalanır. Kolon eşleşmesi başlık adlarından otomatik
+ *  kurulur; farklı isimlendirmeler MAP ile elle bağlanabilir.
+ * ========================================================================== */
+const SYNC = {
+  SOURCE_ID: '1odpzS7XdaxhhFuRoZ7ht_24Y4LJ3VSM1fdG4ydtHPrE',
+  SOURCE_GID: 811830514,           // Sekme GID'i (URL'deki #gid=... değeri)
+  SOURCE_SHEET_NAME: '',           // Doluysa GID yerine bu ad kullanılır
+  SOURCE_HEADER_ROW: 1,
+
+  TARGET_SHEET_NAME: 'Bursa Follow Up',
+  TARGET_HEADER_ROW: 1,
+
+  // Mükerrer kaydı engelleyen benzersiz anahtar (hedefteki başlık adı).
+  // Bulunamazsa son işlenen kaynak satır numarası üzerinden çalışılır.
+  KEY_TARGET_HEADER: 'Bursa Ref',
+  KEY_SOURCE_HEADER: '',           // Boşsa hedefle eşleşen kaynak kolonu kullanılır
+
+  // Elle kopyalanmayacak, panelde ekibin doldurduğu iş akışı kolonları.
+  EXCLUDE_TARGET_HEADERS: ['Status', 'IS Status', 'Order', 'Comment', 'Comments', 'Yorum'],
+
+  // Otomatik eşleşme yetmezse: { 'Hedef Başlık': 'Kaynak Başlık' }
+  MAP: {},
+
+  DRY_RUN: false,                  // true → yazma yapmaz, sadece raporlar
+  LOG_SHEET_NAME: 'Sync Log',
+  MAX_ROWS_PER_RUN: 500
+};
+
 /**
  * Kolon otomatik algılama tanımları.
  * Sıra ÖNEMLİDİR: daha özel alanlar (isStatus, ediEu) genel olanlardan (status) önce
@@ -56,16 +99,29 @@ const COLUMN_PATTERNS = [
   { field: 'order',        exact: ['order'], contains: ['order no', 'order', 'siparis'] },
   { field: 'owner',        exact: [], contains: ['owner', 'responsible', 'sorumlu', 'assignee', 'in charge', 'pilot', 'atanan'] },
   { field: 'customer',     exact: [], contains: ['customer', 'musteri', 'client', 'oem', 'account'] },
+  { field: 'region',       exact: ['region', 'bolge'], contains: ['region', 'bolge', 'zone'] },
   { field: 'plant',        exact: [], contains: ['plant', 'site', 'location', 'lokasyon', 'fabrika'] },
-  { field: 'comment',      exact: [], contains: ['comment', 'note', 'remark', 'aciklama', 'not'] }
+  { field: 'comment',      exact: ['comment', 'comments', 'yorum'], contains: ['comment', 'yorum', 'remark', 'notlar', 'aciklama'] }
 ];
+
+/** Yorum olarak yorumlanacak başlıklar (birden fazla olabilir). */
+const COMMENT_HEADER_PATTERNS = ['comment', 'yorum', 'remark', 'notlar', 'aciklama', 'feedback', 'note'];
 
 /* ==========================================================================
  *  WEB APP GİRİŞİ
  * ========================================================================== */
 
 function doGet() {
-  return HtmlService.createHtmlOutputFromFile('Index')
+  // Modül 2 — oturum kaydı. Log yazılamazsa panel yine de açılmalıdır.
+  let session = { sessionId: '', email: '' };
+  try { session = createSession(); } catch (e) { Logger.log('Oturum kaydi basarisiz: ' + e); }
+
+  const template = HtmlService.createTemplateFromFile('Index');
+  template.sessionId  = session.sessionId;
+  template.userEmail  = session.email;
+  template.timeoutMin = TIMEOUT_MIN;
+
+  return template.evaluate()
       .setTitle('IS Validation Dashboard')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -134,6 +190,7 @@ function getDashboardData(forceRefresh) {
       meta: {
         headers: headers.filter(String),
         columnMap: columnMap,
+        commentHeaders: detectCommentHeaders_(headers),
         detectedFields: Object.keys(columnMap).filter(function (k) { return !!columnMap[k]; }),
         totalRows: rows.length,
         sheetName: CONFIG.SHEET_NAME,
@@ -205,6 +262,18 @@ function detectColumns_(headers) {
   });
 
   return map;
+}
+
+/**
+ * Yorum içeren tüm başlıkları döndürür (Comment, Comments, Yorum, Remark ...).
+ * columnMap tek başlık tutar; panel detay kartı hepsini göstermek için bunu kullanır.
+ */
+function detectCommentHeaders_(headers) {
+  return headers.filter(function (h) {
+    if (!h) return false;
+    const n = normalizeHeader_(h);
+    return COMMENT_HEADER_PATTERNS.some(function (p) { return n.indexOf(p) !== -1; });
+  });
 }
 
 /* ==========================================================================
@@ -537,4 +606,397 @@ function debugColumnDetection() {
   Logger.log('Bulunan basliklar: ' + payload.meta.headers.join(' | '));
   Logger.log('Kolon eslesmesi: ' + JSON.stringify(payload.meta.columnMap, null, 2));
   Logger.log('Okunan satir: ' + payload.meta.totalRows);
+}
+
+/* ==========================================================================
+ *  MODÜL 1 — FEEDBACK WIDGET   (SETUP_CLAUDE.md standardı)
+ *  Geri bildirimler FB_SHEET_ID dosyasında, appName adlı sekmede toplanır.
+ *  Panel FB_APP_NAME = 'Feedback' gönderdiği için sekme adı "Feedback" olur.
+ * ========================================================================== */
+
+function submitFeedback(payload) {
+  var ss      = SpreadsheetApp.openById(FB_SHEET_ID);
+  var tabName = (payload && payload.appName) || 'Genel';
+  var sheet   = ss.getSheetByName(tabName);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(tabName);
+    sheet.getRange(1, 1, 1, 9).setValues([[
+      'FeedbackID', 'Email', 'Feedback_Type', 'Priority', 'Message',
+      'CreatedAt', 'Comments', 'Status', 'Standardization Y/N'
+    ]]).setBackground('#4A6CF7').setFontColor('#FFFFFF').setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(1, 110); sheet.setColumnWidth(2, 200);
+    sheet.setColumnWidth(3, 120); sheet.setColumnWidth(4, 90);
+    sheet.setColumnWidth(5, 320); sheet.setColumnWidth(6, 160);
+    sheet.setColumnWidth(7, 200);
+  }
+
+  var id    = Utilities.getUuid().substring(0, 8).toUpperCase();
+  var now   = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  var email = Session.getActiveUser().getEmail() || 'Anonim';
+
+  sheet.appendRow([id, email,
+    (payload && payload.feedbackType) || '', (payload && payload.priority) || '',
+    (payload && payload.message) || '', now, '', 'Open', '']);
+
+  return { success: true, id: id };
+}
+
+/* ==========================================================================
+ *  MODÜL 2 — GİRİŞ / ÇIKIŞ LOGLAMA   (SETUP_CLAUDE.md standardı)
+ *  doGet() zaten mevcut olduğu için standardın öngördüğü gibi yalnızca
+ *  createSession / logExit / _getOrCreateLogSheet eklendi ve session satırları
+ *  mevcut doGet() içine entegre edildi.
+ * ========================================================================== */
+
+function createSession() {
+  var sheet     = _getOrCreateLogSheet();
+  var sessionId = Utilities.getUuid();
+  var email     = Session.getActiveUser().getEmail() || 'Anonim';
+  sheet.appendRow([sessionId, email, new Date(), '', '', 'Açık']);
+  return { sessionId: sessionId, email: email };
+}
+
+function logExit(sessionId, exitTimestamp, durationSec) {
+  if (!sessionId) return;
+  var sheet = _getOrCreateLogSheet();
+  var data  = sheet.getDataRange().getValues();
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (data[i][0] === sessionId && data[i][5] === 'Açık') {
+      sheet.getRange(i + 1, 4).setValue(new Date(exitTimestamp));
+      sheet.getRange(i + 1, 5).setValue(Math.round(durationSec / 60 * 10) / 10);
+      sheet.getRange(i + 1, 6).setValue('Tamamlandı');
+      break;
+    }
+  }
+}
+
+function _getOrCreateLogSheet() {
+  var ss    = SpreadsheetApp.openById(FB_SHEET_ID);
+  var sheet = ss.getSheetByName(LOG_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(LOG_SHEET);
+    sheet.appendRow(['Oturum ID', 'E-posta', 'Giriş Zamanı', 'Çıkış Zamanı', 'Süre (dk)', 'Durum']);
+    sheet.getRange(1, 1, 1, 6).setFontWeight('bold');
+  }
+  return sheet;
+}
+
+/* ==========================================================================
+ *  MODÜL 3 — VERSİYON YÖNETİMİ   (SETUP_CLAUDE.md standardı)
+ * ========================================================================== */
+
+/** Panel açılışta bu fonksiyonu çağırır (beta banner + versiyon rozeti). */
+function getAppVersion() {
+  var props = PropertiesService.getScriptProperties();
+  return {
+    version:   props.getProperty('APP_VERSION')    || '1.0',
+    buildDate: props.getProperty('APP_BUILD_DATE') || '',
+    isBeta:    props.getProperty('APP_IS_BETA')    !== 'false'
+  };
+}
+
+/** Versiyon numarasını artırır — kurulumTrigger / majorDeploy üzerinden çağrılır. */
+function bumpVersion(type) {
+  var props   = PropertiesService.getScriptProperties();
+  var current = props.getProperty('APP_VERSION') || '1.0';
+  var parts   = current.split('.').map(Number);
+  if (type === 'major') { parts[0]++; parts[1] = 0; }
+  else                  { parts[1]++; }
+  var next      = parts[0] + '.' + parts[1];
+  var buildDate = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  props.setProperty('APP_VERSION',    next);
+  props.setProperty('APP_BUILD_DATE', buildDate);
+  Logger.log('Versiyon: ' + next + ' (' + buildDate + ')');
+  return { version: next, buildDate: buildDate };
+}
+
+/** Beta modunu açar/kapatır. Yayına geçerken setBeta(false) çalıştırılır. */
+function setBeta(flag) {
+  PropertiesService.getScriptProperties().setProperty('APP_IS_BETA', flag ? 'true' : 'false');
+  Logger.log('Beta modu: ' + (flag ? 'AÇIK' : 'KAPALI'));
+}
+
+/** kurulumTrigger ve majorDeploy'un ortak gövdesi: versiyon artışı + tetikleyiciler. */
+function _kurulumYap(bumpType) {
+  var info = bumpVersion(bumpType);
+  installWeeklyTrigger();
+  installSyncTrigger();
+  clearCache();
+  Logger.log('Kurulum tamamlandi. Surum ' + info.version + ' — tetikleyiciler yeniden kuruldu.');
+  return info;
+}
+
+/** Küçük değişiklik deploy'u → 1.0 → 1.1 */
+function kurulumTrigger() { return _kurulumYap('minor'); }
+
+/** Büyük değişiklik deploy'u → 1.1 → 2.0 */
+function majorDeploy() { return _kurulumYap('major'); }
+
+/* ==========================================================================
+ *  MODÜL 4 — KAYNAK DOSYADAN OTOMATİK SATIR AKTARIMI
+ *  Kaynak sayfaya eklenen yeni kayıtlar, başlık adlarına göre eşleştirilerek
+ *  hedef takip sayfasına eklenir. Mevcut satırlar ASLA değiştirilmez.
+ * ========================================================================== */
+
+/** GID veya ada göre sekmeyi bulur. */
+function resolveSheet_(ss, name, gid) {
+  if (name) {
+    const byName = ss.getSheetByName(name);
+    if (byName) return byName;
+  }
+  if (gid !== null && gid !== undefined) {
+    const sheets = ss.getSheets();
+    for (let i = 0; i < sheets.length; i++) {
+      if (sheets[i].getSheetId() === Number(gid)) return sheets[i];
+    }
+  }
+  return null;
+}
+
+/**
+ * Hedef başlıkları ile kaynak başlıklarını eşleştirir.
+ * Öncelik: elle MAP → birebir eşleşme → içerme eşleşmesi.
+ */
+function buildSyncMapping_(targetHeaders, sourceHeaders) {
+  const srcNorm = sourceHeaders.map(normalizeHeader_);
+  const excluded = SYNC.EXCLUDE_TARGET_HEADERS.map(normalizeHeader_);
+  const used = {};
+  const mapping = [];
+
+  targetHeaders.forEach(function (th, ti) {
+    if (!th) return;
+    const tn = normalizeHeader_(th);
+    if (excluded.indexOf(tn) !== -1) return;
+
+    let si = -1;
+
+    if (SYNC.MAP[th]) {
+      si = sourceHeaders.indexOf(SYNC.MAP[th]);
+      if (si === -1) si = srcNorm.indexOf(normalizeHeader_(SYNC.MAP[th]));
+    }
+    if (si === -1) {
+      for (let i = 0; i < srcNorm.length; i++) {
+        if (!used[i] && srcNorm[i] && srcNorm[i] === tn) { si = i; break; }
+      }
+    }
+    if (si === -1 && tn.length >= 4) {
+      for (let i = 0; i < srcNorm.length; i++) {
+        if (used[i] || !srcNorm[i]) continue;
+        if (srcNorm[i].indexOf(tn) !== -1 || tn.indexOf(srcNorm[i]) !== -1) { si = i; break; }
+      }
+    }
+
+    if (si !== -1) {
+      used[si] = true;
+      mapping.push({ targetIndex: ti, sourceIndex: si, targetHeader: th, sourceHeader: sourceHeaders[si] });
+    }
+  });
+
+  return mapping;
+}
+
+/**
+ * Kaynaktaki yeni satırları hedefe ekler.
+ * @param {boolean} silent true ise hata fırlatmaz (tetikleyici kullanımı için).
+ * @return {Object} { ok, added, skipped, mapping, message }
+ */
+function syncNewRows(silent) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    return { ok: false, added: 0, message: 'Baska bir senkronizasyon devam ediyor.' };
+  }
+
+  try {
+    const sourceSs = SpreadsheetApp.openById(SYNC.SOURCE_ID);
+    const sourceSheet = resolveSheet_(sourceSs, SYNC.SOURCE_SHEET_NAME, SYNC.SOURCE_GID);
+    if (!sourceSheet) throw new Error('Kaynak sekme bulunamadi (GID: ' + SYNC.SOURCE_GID + ').');
+
+    const targetSs = SpreadsheetApp.openByUrl(CONFIG.SHEET_URL);
+    const targetSheet = targetSs.getSheetByName(SYNC.TARGET_SHEET_NAME);
+    if (!targetSheet) throw new Error('Hedef sekme bulunamadi: ' + SYNC.TARGET_SHEET_NAME);
+
+    const sourceValues = sourceSheet.getDataRange().getDisplayValues();
+    const targetValues = targetSheet.getDataRange().getDisplayValues();
+    if (sourceValues.length <= SYNC.SOURCE_HEADER_ROW) {
+      return finishSync_({ ok: true, added: 0, skipped: 0, mapping: [], message: 'Kaynakta veri satiri yok.' });
+    }
+
+    const sourceHeaders = sourceValues[SYNC.SOURCE_HEADER_ROW - 1].map(function (h) { return String(h || '').trim(); });
+    const targetHeaders = targetValues[SYNC.TARGET_HEADER_ROW - 1].map(function (h) { return String(h || '').trim(); });
+    const mapping = buildSyncMapping_(targetHeaders, sourceHeaders);
+    if (!mapping.length) throw new Error('Kaynak ve hedef arasinda eslesen kolon bulunamadi. SYNC.MAP ile elle eslestirin.');
+
+    // --- Anahtar kolonu çöz ---
+    const keyTargetIndex = targetHeaders.map(normalizeHeader_).indexOf(normalizeHeader_(SYNC.KEY_TARGET_HEADER));
+    let keySourceIndex = -1;
+    if (SYNC.KEY_SOURCE_HEADER) {
+      keySourceIndex = sourceHeaders.map(normalizeHeader_).indexOf(normalizeHeader_(SYNC.KEY_SOURCE_HEADER));
+    } else if (keyTargetIndex !== -1) {
+      const km = mapping.filter(function (m) { return m.targetIndex === keyTargetIndex; })[0];
+      if (km) keySourceIndex = km.sourceIndex;
+    }
+    const useKey = keyTargetIndex !== -1 && keySourceIndex !== -1;
+
+    const props = PropertiesService.getScriptProperties();
+    const watermark = parseInt(props.getProperty('SYNC_LAST_SOURCE_ROW') || '0', 10);
+
+    const existingKeys = {};
+    if (useKey) {
+      for (let i = SYNC.TARGET_HEADER_ROW; i < targetValues.length; i++) {
+        const k = String(targetValues[i][keyTargetIndex] || '').trim().toUpperCase();
+        if (k) existingKeys[k] = true;
+      }
+    }
+
+    // --- Yeni satırları topla ---
+    const width = Math.max(targetHeaders.length, targetSheet.getLastColumn());
+    const newRows = [];
+    const addedKeys = [];
+    let skipped = 0;
+    let lastProcessedRow = watermark;
+
+    for (let i = SYNC.SOURCE_HEADER_ROW; i < sourceValues.length; i++) {
+      const rowNumber = i + 1;
+      const srcRow = sourceValues[i];
+
+      const hasContent = srcRow.some(function (c) { return String(c || '').trim() !== ''; });
+      if (!hasContent) continue;
+
+      if (useKey) {
+        const key = String(srcRow[keySourceIndex] || '').trim();
+        if (!key) { skipped++; continue; }
+        if (existingKeys[key.toUpperCase()]) { skipped++; continue; }
+        existingKeys[key.toUpperCase()] = true;   // aynı çalıştırmada mükerrer engeli
+        addedKeys.push(key);
+      } else {
+        if (rowNumber <= watermark) continue;      // anahtar yoksa satır numarası ile ilerle
+        addedKeys.push('satir ' + rowNumber);
+      }
+
+      const out = new Array(width).fill('');
+      mapping.forEach(function (m) {
+        if (m.targetIndex < width) out[m.targetIndex] = srcRow[m.sourceIndex];
+      });
+      newRows.push(out);
+      lastProcessedRow = Math.max(lastProcessedRow, rowNumber);
+
+      if (newRows.length >= SYNC.MAX_ROWS_PER_RUN) break;
+    }
+
+    if (!newRows.length) {
+      return finishSync_({ ok: true, added: 0, skipped: skipped, mapping: mapping,
+                           message: 'Yeni kayit bulunamadi.' });
+    }
+
+    if (SYNC.DRY_RUN) {
+      return finishSync_({ ok: true, added: 0, skipped: skipped, mapping: mapping, dryRun: true,
+                           message: 'DRY_RUN acik — ' + newRows.length + ' satir eklenecekti.' });
+    }
+
+    targetSheet.getRange(targetSheet.getLastRow() + 1, 1, newRows.length, width).setValues(newRows);
+    if (!useKey) props.setProperty('SYNC_LAST_SOURCE_ROW', String(lastProcessedRow));
+
+    logSync_(targetSs, newRows.length, skipped, addedKeys, mapping, useKey);
+    clearCache();
+
+    return finishSync_({ ok: true, added: newRows.length, skipped: skipped, mapping: mapping,
+                         message: newRows.length + ' yeni kayit aktarildi.' });
+
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    Logger.log('Senkronizasyon hatasi: ' + msg);
+    try { logSync_(SpreadsheetApp.openByUrl(CONFIG.SHEET_URL), 0, 0, [], [], false, msg); } catch (e2) {}
+    if (silent) return { ok: false, added: 0, message: msg };
+    return { ok: false, added: 0, message: msg };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function finishSync_(result) {
+  Logger.log(result.message);
+  return result;
+}
+
+function logSync_(ss, added, skipped, keys, mapping, useKey, errorMessage) {
+  let sheet = ss.getSheetByName(SYNC.LOG_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(SYNC.LOG_SHEET_NAME);
+    sheet.appendRow(['Zaman', 'Eklenen', 'Atlanan', 'Yöntem', 'Eşleşen Kolon', 'Eklenen Anahtarlar', 'Hata']);
+    sheet.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground('#002b49').setFontColor('#FFFFFF');
+    sheet.setFrozenRows(1);
+  }
+  sheet.appendRow([
+    new Date(), added, skipped,
+    useKey ? 'Anahtar: ' + SYNC.KEY_TARGET_HEADER : 'Satır numarası',
+    (mapping || []).map(function (m) { return m.sourceHeader + ' → ' + m.targetHeader; }).join(' | '),
+    (keys || []).slice(0, 30).join(', '),
+    errorMessage || ''
+  ]);
+}
+
+/** Panelin "Yeni Kayıtları Al" butonu bu fonksiyonu çağırır. */
+function runSyncFromDashboard() {
+  const r = syncNewRows(true);
+  return { ok: r.ok, added: r.added || 0, message: r.message || '' };
+}
+
+/** Senkronizasyonu 15 dakikada bir çalıştıran tetikleyiciyi kurar. */
+function installSyncTrigger() {
+  removeSyncTrigger();
+  ScriptApp.newTrigger('syncNewRows').timeBased().everyMinutes(15).create();
+  return 'Senkronizasyon tetikleyicisi kuruldu (15 dakikada bir).';
+}
+
+function removeSyncTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'syncNewRows') ScriptApp.deleteTrigger(t);
+  });
+  return 'Senkronizasyon tetikleyicileri kaldirildi.';
+}
+
+/**
+ * KURULUM YARDIMCISI — hiçbir şey yazmaz.
+ * Kaynak ve hedef başlıklarını ve otomatik kurulan eşleşmeyi Logs'a yazar.
+ * Eşleşmeyen kolonlar için SYNC.MAP'e satır eklenir.
+ */
+function debugSyncMapping() {
+  try {
+    const sourceSs = SpreadsheetApp.openById(SYNC.SOURCE_ID);
+    const sourceSheet = resolveSheet_(sourceSs, SYNC.SOURCE_SHEET_NAME, SYNC.SOURCE_GID);
+    if (!sourceSheet) { Logger.log('HATA: Kaynak sekme bulunamadi. Mevcut sekmeler: ' +
+        sourceSs.getSheets().map(function (s) { return s.getName() + ' (gid ' + s.getSheetId() + ')'; }).join(', ')); return; }
+
+    const targetSs = SpreadsheetApp.openByUrl(CONFIG.SHEET_URL);
+    const targetSheet = targetSs.getSheetByName(SYNC.TARGET_SHEET_NAME);
+    if (!targetSheet) { Logger.log('HATA: Hedef sekme bulunamadi: ' + SYNC.TARGET_SHEET_NAME); return; }
+
+    const sourceHeaders = sourceSheet.getRange(SYNC.SOURCE_HEADER_ROW, 1, 1, sourceSheet.getLastColumn())
+        .getDisplayValues()[0].map(function (h) { return String(h || '').trim(); });
+    const targetHeaders = targetSheet.getRange(SYNC.TARGET_HEADER_ROW, 1, 1, targetSheet.getLastColumn())
+        .getDisplayValues()[0].map(function (h) { return String(h || '').trim(); });
+
+    Logger.log('KAYNAK sekme : ' + sourceSheet.getName() + ' (gid ' + sourceSheet.getSheetId() + ')');
+    Logger.log('KAYNAK basliklari (' + sourceHeaders.length + '): ' + sourceHeaders.join(' | '));
+    Logger.log('HEDEF  basliklari (' + targetHeaders.length + '): ' + targetHeaders.join(' | '));
+
+    const mapping = buildSyncMapping_(targetHeaders, sourceHeaders);
+    Logger.log('--- OTOMATIK ESLESME (' + mapping.length + ' kolon) ---');
+    mapping.forEach(function (m) { Logger.log('  ' + m.sourceHeader + '  ->  ' + m.targetHeader); });
+
+    const matched = {};
+    mapping.forEach(function (m) { matched[m.targetHeader] = true; });
+    const unmatched = targetHeaders.filter(function (h) {
+      return h && !matched[h] && SYNC.EXCLUDE_TARGET_HEADERS.map(normalizeHeader_).indexOf(normalizeHeader_(h)) === -1;
+    });
+    Logger.log('--- ESLESMEYEN HEDEF KOLONLARI ---');
+    Logger.log(unmatched.length ? unmatched.join(' | ') : '(yok)');
+
+    const keyIdx = targetHeaders.map(normalizeHeader_).indexOf(normalizeHeader_(SYNC.KEY_TARGET_HEADER));
+    Logger.log('Anahtar kolon "' + SYNC.KEY_TARGET_HEADER + '": ' + (keyIdx === -1 ? 'HEDEFTE BULUNAMADI (satir numarasi ile calisilacak)' : 'bulundu'));
+  } catch (e) {
+    Logger.log('HATA: ' + e);
+  }
 }

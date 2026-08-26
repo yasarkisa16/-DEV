@@ -112,6 +112,41 @@
 
         #main-dashboard { display: none; }
 
+        /* ---------- Valeo logo & versiyon ---------- */
+        .brand-logo { height: 34px; width: auto; object-fit: contain; }
+        .brand-wrap { display: flex; align-items: center; gap: 14px; }
+        #version-badge { display: inline-flex; align-items: center; gap: 6px; font-size: .68rem;
+            color: var(--valeo-grey); background: #eef2f5; border: 1px solid #e0e6eb;
+            border-radius: 20px; padding: 2px 10px; }
+        #vb-beta-label { font-size: .6rem; font-weight: 800; letter-spacing: .08em; color: #fff;
+            background: var(--valeo-green); border-radius: 4px; padding: 1px 5px; }
+        #vb-beta-label.hidden { display: none; }
+
+        /* ---------- Beta banner ---------- */
+        #beta-banner { display: none; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 9px 20px; background: linear-gradient(90deg, #041b3c 0%, #0052cc 50%, #041b3c 100%);
+            border-bottom: 2px solid rgba(120,200,0,.4); color: #fff; font-size: .82rem; }
+        #beta-banner .beta-tag { font-size: .62rem; font-weight: 800; letter-spacing: .12em;
+            color: #041b3c; background: var(--valeo-green); padding: 2px 7px; border-radius: 3px; }
+        #beta-banner .beta-link { background: none; border: none; padding: 0; color: var(--valeo-green);
+            text-decoration: underline; cursor: pointer; font: inherit; }
+        #beta-banner .beta-close { background: none; border: none; color: #b9c4d0; cursor: pointer; font-size: 1rem; }
+        #beta-banner .beta-close:hover { color: #fff; }
+
+        /* ---------- Yorumlar ---------- */
+        .comment-card { background: #f6f9fc; border-left: 3px solid var(--valeo-green);
+            border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: .84rem; white-space: pre-wrap; }
+        .comment-src { font-size: .68rem; font-weight: 700; color: var(--valeo-grey);
+            text-transform: uppercase; letter-spacing: .3px; display: block; margin-bottom: 3px; }
+        .comment-ico { color: #0d6efd; margin-left: 5px; }
+
+        /* Bootstrap CSS yüklenemezse modaller görünür kalmasın */
+        .modal { display: none; }
+
+        /* ---------- Grafik yedeği ---------- */
+        .chart-fallback { display: flex; align-items: center; justify-content: center; height: 100%;
+            color: var(--valeo-grey); font-size: .82rem; text-align: center; padding: 20px; }
+
         @media (max-width: 767px) {
             .kpi-value { font-size: 1.5rem; }
             .top-navbar { padding: 10px 14px; }
@@ -129,6 +164,18 @@
     </style>
 </head>
 <body>
+
+    <!-- BETA BANNER -->
+    <div id="beta-banner">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="beta-tag">BETA</span>
+            <span>IS Validation Dashboard <strong id="bb-version" style="color:var(--valeo-green)"></strong>
+                <span class="text-white-50" data-i18n="betaText">— aktif geliştirme aşamasındadır. Geri bildiriminiz için</span>
+                <button class="beta-link" onclick="fbToggle();betaBannerKapat();">Geri Bildirim</button>
+                <span class="text-white-50" data-i18n="betaText2">butonunu kullanın.</span></span>
+        </div>
+        <button class="beta-close" onclick="betaBannerKapat();" title="Kapat">&#x2715;</button>
+    </div>
 
     <div id="splash-screen">
         <div class="splash-logo">IS Validation</div>
@@ -149,9 +196,23 @@
 
         <!-- ============ NAVBAR ============ -->
         <div class="top-navbar no-print">
-            <div>
-                <h2><span>IS</span> DASHBOARD</h2>
-                <div class="meta-line"><span class="dot"></span><span data-i18n="lastUpdate">Son güncelleme</span>: <span id="meta-updated">—</span> · <span id="meta-rows">0</span> <span data-i18n="records">kayıt</span><span id="meta-cached"></span></div>
+            <div class="brand-wrap">
+                <!-- Valeo Logo -->
+                <img id="sidebar-logo" class="brand-logo"
+                     src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Valeo_Logo.svg/960px-Valeo_Logo.svg.png"
+                     alt="Valeo" onerror="this.style.display='none'">
+                <div>
+                    <h2><span>IS</span> DASHBOARD</h2>
+                    <div class="meta-line">
+                        <span class="dot"></span><span data-i18n="lastUpdate">Son güncelleme</span>:
+                        <span id="meta-updated">—</span> · <span id="meta-rows">0</span>
+                        <span data-i18n="records">kayıt</span><span id="meta-cached"></span>
+                        <span id="version-badge" class="ms-2">
+                            <span id="vb-beta-label" class="hidden">BETA</span>
+                            <span id="vb-version">...</span>
+                        </span>
+                    </div>
+                </div>
             </div>
             <div class="d-flex flex-wrap gap-2 align-items-center">
                 <div class="btn-group lang-switch" role="group">
@@ -164,6 +225,7 @@
                     <option value="15" data-i18n="auto15">Her 15 dakikada</option>
                     <option value="30" data-i18n="auto30">Her 30 dakikada</option>
                 </select>
+                <button class="btn btn-primary btn-sm" id="sync-btn" onclick="runSync()"><i class="fas fa-cloud-arrow-down"></i> <span data-i18n="navSync">Yeni Kayıtları Al</span></button>
                 <button class="btn btn-outline-primary btn-sm" onclick="refreshData()"><i class="fas fa-sync-alt"></i> <span data-i18n="navRefresh">Yenile</span></button>
                 <button class="btn btn-outline-secondary btn-sm" onclick="resetFilters()"><i class="fas fa-undo"></i> <span data-i18n="navReset">Sıfırla</span></button>
                 <button class="btn btn-outline-success btn-sm" onclick="exportCsv()"><i class="fas fa-file-csv"></i> <span data-i18n="navExport">Excel'e Aktar</span></button>
@@ -205,6 +267,10 @@
                 <div class="col-6 col-md-4 col-lg-2" id="wrap-customer" style="display:none">
                     <div class="filter-label" data-i18n="fCustomer">Müşteri</div>
                     <select class="form-select form-select-sm" id="filter-customer" onchange="applyFilters()"></select>
+                </div>
+                <div class="col-6 col-md-4 col-lg-2" id="wrap-region" style="display:none">
+                    <div class="filter-label" data-i18n="fRegion">Bölge</div>
+                    <select class="form-select form-select-sm" id="filter-region" onchange="applyFilters()"></select>
                 </div>
                 <div class="col-6 col-md-4 col-lg-2">
                     <div class="filter-label" data-i18n="fEdi">EDI Availability</div>
@@ -337,6 +403,12 @@
                         <div id="customerChart" class="chart-sm"></div>
                     </div>
                 </div>
+                <div class="col-lg-6" id="wrap-region-chart" style="display:none">
+                    <div class="box-card">
+                        <div class="section-title mb-2"><i class="fas fa-earth-europe"></i> <span data-i18n="chRegion">Bölge Bazında Dağılım</span></div>
+                        <div id="regionChart" class="chart-sm"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- ============ DATA QUALITY ============ -->
@@ -409,6 +481,11 @@ const I18N = {
     lastUpdate: 'Son güncelleme', cachedTag: ' · önbellekten',
     loading: 'Veriler yükleniyor...',
     navRefresh: 'Yenile', navReset: 'Sıfırla', navExport: "Excel'e Aktar", navPrint: 'Yazdır',
+    navSync: 'Yeni Kayıtları Al', syncRunning: 'Aktarılıyor...',
+    syncDone: '{n} yeni kayıt aktarıldı.', syncNone: 'Aktarılacak yeni kayıt yok.',
+    syncError: 'Aktarım hatası: {m}',
+    betaText: '— aktif geliştirme aşamasındadır. Geri bildiriminiz için',
+    betaText2: 'butonunu kullanın.',
     navAuto: 'Otomatik yenileme', autoOff: 'Otomatik yenileme: Kapalı',
     auto5: 'Her 5 dakikada', auto15: 'Her 15 dakikada', auto30: 'Her 30 dakikada',
 
@@ -423,7 +500,7 @@ const I18N = {
     alertQuality: 'kayıtta veri eksikliği var',
 
     fStatus: 'Status', fType: 'Type', fYear: 'Year', fEdi: 'EDI Availability',
-    fOwner: 'Sorumlu', fCustomer: 'Müşteri',
+    fOwner: 'Sorumlu', fCustomer: 'Müşteri', fRegion: 'Bölge',
     fSearch: 'Hızlı Arama (Ref / Proje / Sorumlu)', fSearchPh: 'Arama yapın...',
     optDone: 'Tamamlanan (Done)', optPending: 'Bekleyen (Pending)', optCancel: 'İptal Edilen (Cancel)',
     ediNone: 'İkisi de YES değil',
@@ -440,8 +517,9 @@ const I18N = {
     chTrendNoteMonth: 'Açılış tarihine göre gruplanmıştır.',
     chAging: 'Bekleyen İşlerin Yaşı', chAgingNote: 'Açılışından bu yana geçen gün',
     chType: 'Tip Bazında Tamamlama', chOwner: 'Sorumlu Bazında İş Yükü',
-    chCustomer: 'Müşteri Bazında Dağılım',
+    chCustomer: 'Müşteri Bazında Dağılım', chRegion: 'Bölge Bazında Dağılım',
     chNoData: 'Gösterilecek veri yok',
+    chUnavailable: 'Grafik kütüphanesi yüklenemedi. Tablo ve KPI değerleri çalışmaya devam ediyor.',
     chartsOffline: 'Grafik kütüphanesine (CDN) erişilemedi. Tablo ve KPI\'lar çalışmaya devam ediyor.',
     sDone: 'Tamamlanan', sPending: 'Bekleyen', sCancel: 'İptal', sOpened: 'Açılan',
     sRate: 'Tamamlama %', sUnknown: 'Bilinmiyor',
@@ -467,6 +545,8 @@ const I18N = {
     tipOverdue: 'Termini geçmiş bekleyen proje', tipStale: 'Uzun süredir hareketsiz',
 
     mTitle: 'Proje Detayı', mSheetRow: 'Sheet satırı',
+    mComments: 'Yorumlar', mNoComments: 'Bu kayıt için yorum girilmemiş.',
+    mFields: 'Tüm Alanlar', tipHasComment: 'Bu kayıtta yorum var',
     csvTitle: 'CSV Verisi', csvHint: 'Otomatik indirme engellendi. Aşağıdaki metni kopyalayıp bir .csv dosyasına yapıştırabilirsiniz.',
     filterTag: 'Aktif kırılım'
   },
@@ -475,6 +555,11 @@ const I18N = {
     lastUpdate: 'Last update', cachedTag: ' · from cache',
     loading: 'Loading data...',
     navRefresh: 'Refresh', navReset: 'Reset', navExport: 'Export to Excel', navPrint: 'Print',
+    navSync: 'Pull New Records', syncRunning: 'Importing...',
+    syncDone: '{n} new records imported.', syncNone: 'No new records to import.',
+    syncError: 'Import error: {m}',
+    betaText: '— under active development. For feedback please use the',
+    betaText2: 'button.',
     navAuto: 'Auto refresh', autoOff: 'Auto refresh: Off',
     auto5: 'Every 5 minutes', auto15: 'Every 15 minutes', auto30: 'Every 30 minutes',
 
@@ -489,7 +574,7 @@ const I18N = {
     alertQuality: 'records with data gaps',
 
     fStatus: 'Status', fType: 'Type', fYear: 'Year', fEdi: 'EDI Availability',
-    fOwner: 'Owner', fCustomer: 'Customer',
+    fOwner: 'Owner', fCustomer: 'Customer', fRegion: 'Region',
     fSearch: 'Quick search (Ref / Project / Owner)', fSearchPh: 'Search...',
     optDone: 'Completed (Done)', optPending: 'Pending', optCancel: 'Cancelled',
     ediNone: 'Neither is YES',
@@ -506,8 +591,9 @@ const I18N = {
     chTrendNoteMonth: 'Grouped by creation date.',
     chAging: 'Age of Pending Items', chAgingNote: 'Days elapsed since opening',
     chType: 'Completion by Type', chOwner: 'Workload by Owner',
-    chCustomer: 'Breakdown by Customer',
+    chCustomer: 'Breakdown by Customer', chRegion: 'Breakdown by Region',
     chNoData: 'No data to display',
+    chUnavailable: 'Chart library could not be loaded. Table and KPI values still work.',
     chartsOffline: 'Chart library (CDN) unreachable. Table and KPIs remain functional.',
     sDone: 'Done', sPending: 'Pending', sCancel: 'Cancelled', sOpened: 'Opened',
     sRate: 'Completion %', sUnknown: 'Unknown',
@@ -533,6 +619,8 @@ const I18N = {
     tipOverdue: 'Pending project past its due date', tipStale: 'Idle for a long time',
 
     mTitle: 'Project Detail', mSheetRow: 'Sheet row',
+    mComments: 'Comments', mNoComments: 'No comment recorded for this item.',
+    mFields: 'All Fields', tipHasComment: 'This record has comments',
     csvTitle: 'CSV Data', csvHint: 'Automatic download was blocked. Copy the text below into a .csv file.',
     filterTag: 'Active drill-down'
   }
@@ -665,6 +753,7 @@ function applyLang() {
 document.addEventListener('DOMContentLoaded', function () {
   APP.lang = store('isdash_lang') === 'en' ? 'en' : 'tr';
   setLang(APP.lang);
+  loadVersion();
   loadData(false);
 });
 
@@ -771,8 +860,14 @@ function enrichRows() {
     d.ediEu = v(r, 'ediEu').toUpperCase() === 'YES';
     d.ediVst = v(r, 'ediVst').toUpperCase() === 'YES';
 
+    d.comments = (APP.meta.commentHeaders || []).map(function (h) {
+      return { header: h, text: String(r[h] == null ? '' : r[h]).trim() };
+    }).filter(function (c) { return c.text !== ''; });
+    d.hasComment = d.comments.length > 0;
+
     d.bn = buildBottleneck(d, isStatusRaw);
-    d.search = (v(r, 'ref') + ' ' + v(r, 'project') + ' ' + v(r, 'owner') + ' ' + v(r, 'customer')).toLowerCase();
+    d.search = (v(r, 'ref') + ' ' + v(r, 'project') + ' ' + v(r, 'owner') + ' ' +
+                v(r, 'customer') + ' ' + v(r, 'region')).toLowerCase();
 
     r.__d = d;
   });
@@ -819,9 +914,12 @@ function toggleOptionalSections() {
   const show = function (id, on) { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
   show('wrap-owner', !!APP.map.owner);
   show('wrap-customer', !!APP.map.customer);
+  show('wrap-region', !!APP.map.region);
   show('wrap-owner-chart', !!APP.map.owner);
   show('wrap-customer-chart', !!APP.map.customer);
-  document.getElementById('wrap-type-chart').className = (APP.map.owner || APP.map.customer) ? 'col-lg-6' : 'col-lg-12';
+  show('wrap-region-chart', !!APP.map.region);
+  const extras = !!APP.map.owner || !!APP.map.customer || !!APP.map.region;
+  document.getElementById('wrap-type-chart').className = extras ? 'col-lg-6' : 'col-lg-12';
 }
 
 /* ----------------------------------------------------------- 6) Filtreler -- */
@@ -842,6 +940,7 @@ function populateDropdowns() {
   fillSelect('filter-year', APP.rows.map(function (r) { return v(r, 'year'); }), true);
   if (APP.map.owner) fillSelect('filter-owner', APP.rows.map(function (r) { return v(r, 'owner'); }), false);
   if (APP.map.customer) fillSelect('filter-customer', APP.rows.map(function (r) { return v(r, 'customer'); }), false);
+  if (APP.map.region) fillSelect('filter-region', APP.rows.map(function (r) { return v(r, 'region'); }), false);
 }
 
 let filterTimer = null;
@@ -851,7 +950,7 @@ function debouncedFilter() {
 }
 
 function resetFilters() {
-  ['filter-status', 'filter-type', 'filter-year', 'filter-edi', 'filter-owner', 'filter-customer']
+  ['filter-status', 'filter-type', 'filter-year', 'filter-edi', 'filter-owner', 'filter-customer', 'filter-region']
       .forEach(function (id) { const el = document.getElementById(id); if (el) el.value = 'all'; });
   document.getElementById('search-box').value = '';
   APP.kpi = 'all';
@@ -865,7 +964,8 @@ function val(id) { const el = document.getElementById(id); return el ? el.value 
 
 function applyFilters() {
   const status = val('filter-status'), type = val('filter-type'), year = val('filter-year'),
-        edi = val('filter-edi'), owner = val('filter-owner'), customer = val('filter-customer');
+        edi = val('filter-edi'), owner = val('filter-owner'), customer = val('filter-customer'),
+        region = val('filter-region');
   const search = (document.getElementById('search-box').value || '').toLowerCase().trim();
 
   APP.filtered = APP.rows.filter(function (r) {
@@ -875,6 +975,7 @@ function applyFilters() {
     if (year !== 'all' && v(r, 'year') !== year) return false;
     if (owner !== 'all' && v(r, 'owner') !== owner) return false;
     if (customer !== 'all' && v(r, 'customer') !== customer) return false;
+    if (region !== 'all' && v(r, 'region') !== region) return false;
     if (edi === 'EU_YES' && !d.ediEu) return false;
     if (edi === 'VST_YES' && !d.ediVst) return false;
     if (edi === 'BOTH_NO' && (d.ediEu || d.ediVst)) return false;
@@ -1003,7 +1104,7 @@ function initCharts() {
   APP.chartsReady = true;
   const ids = { donut: 'donutChart', gaugeDone: 'gaugeDone', gaugePending: 'gaugePending',
                 gaugeCancel: 'gaugeCancel', trend: 'trendChart', aging: 'agingChart',
-                type: 'typeChart', owner: 'ownerChart', customer: 'customerChart' };
+                type: 'typeChart', owner: 'ownerChart', customer: 'customerChart', region: 'regionChart' };
   Object.keys(ids).forEach(function (k) {
     const el = document.getElementById(ids[k]);
     if (el && !APP.charts[k]) APP.charts[k] = echarts.init(el);
@@ -1082,6 +1183,7 @@ function updateCharts() {
   updateBreakdownChart('type', 'type', APP.charts.type);
   if (APP.map.owner) updateBreakdownChart('owner', 'owner', APP.charts.owner);
   if (APP.map.customer) updateBreakdownChart('customer', 'customer', APP.charts.customer);
+  if (APP.map.region) updateBreakdownChart('region', 'region', APP.charts.region);
 }
 
 /** Tarih kolonu varsa aylık akış, yoksa yıl bazında portföy kırılımı gösterir. */
@@ -1414,7 +1516,9 @@ function renderTable() {
         case 'year': return '<td class="fw-bold ' + (c.cls || '') + '">' + esc(v(row, 'year') || '-') + '</td>';
         case 'ref': return '<td' + cls + '>' + esc(v(row, 'ref') || '-') + '</td>';
         case 'project': return '<td class="text-truncate ' + (c.cls || '') + '" style="max-width:220px" title="' +
-                               esc(v(row, 'project')) + '">' + esc(v(row, 'project') || '-') + '</td>';
+                               esc(v(row, 'project')) + '">' + esc(v(row, 'project') || '-') +
+                               (d.hasComment ? '<i class="fas fa-comment-dots comment-ico" title="' +
+                                esc(t('tipHasComment')) + '"></i>' : '') + '</td>';
         case 'owner': return '<td' + cls + '>' + esc(v(row, 'owner') || '-') + '</td>';
         case 'isStatus': return '<td' + cls + '>' + (d.isDone
                 ? '<span class="text-success fw-bold">DONE</span>'
@@ -1445,10 +1549,27 @@ function showDetail(index) {
       (v(row, 'ref') || '—') + ' · ' + (v(row, 'project') || t('mTitle'));
 
   let html = '<div class="mb-3">' + bottleneckHtml(d) + '</div>';
+
+  // --- Yorumlar: Comment / Comments / Yorum / Remark ... kolonlarının tamamı ---
+  html += '<div class="section-title mb-2"><i class="fas fa-comments"></i> ' + esc(t('mComments')) +
+          ' <span class="badge bg-secondary ms-1">' + d.comments.length + '</span></div>';
+  if (d.comments.length) {
+    d.comments.forEach(function (c) {
+      html += '<div class="comment-card"><span class="comment-src">' + esc(c.header) + '</span>' +
+              esc(c.text) + '</div>';
+    });
+  } else {
+    html += '<div class="text-muted small mb-2"><i class="fas fa-comment-slash"></i> ' + esc(t('mNoComments')) + '</div>';
+  }
+
+  html += '<div class="section-title mt-4 mb-2"><i class="fas fa-table-list"></i> ' + esc(t('mFields')) + '</div>';
   html += '<table class="table table-sm table-striped mb-0"><tbody>';
 
+  const commentSet = {};
+  (APP.meta.commentHeaders || []).forEach(function (h) { commentSet[h] = true; });
+
   (APP.meta.headers || Object.keys(row)).forEach(function (h) {
-    if (!h || h.indexOf('__') === 0) return;
+    if (!h || h.indexOf('__') === 0 || commentSet[h]) return;
     const value = row[h];
     if (value === undefined) return;
     html += '<tr><th style="width:38%;font-size:.8rem;color:#002b49">' + esc(h) + '</th>' +
@@ -1469,14 +1590,36 @@ function showDetail(index) {
 /** Bootstrap JS yüklenememişse modalı elle açar. */
 function openModal(id) {
   const el = document.getElementById(id);
+  if (!el) return;
   if (typeof bootstrap !== 'undefined' && bootstrap.Modal) { new bootstrap.Modal(el).show(); return; }
+  // Bootstrap yüklenemediyse basit yedek: arka plan tıklaması ve ESC ile kapanır.
   el.classList.add('show');
   el.style.display = 'block';
   el.style.background = 'rgba(0,0,0,.5)';
+  el.onclick = function (ev) { if (ev.target === el) closeModal(id); };
   el.querySelectorAll('[data-bs-dismiss="modal"]').forEach(function (b) {
-    b.onclick = function () { el.classList.remove('show'); el.style.display = 'none'; };
+    b.onclick = function () { closeModal(id); };
   });
 }
+
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+    const inst = bootstrap.Modal.getInstance(el);
+    if (inst) { inst.hide(); return; }
+  }
+  el.classList.remove('show');
+  el.style.display = 'none';
+}
+
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  ['detailModal', 'csvModal'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el && el.classList.contains('show')) closeModal(id);
+  });
+});
 
 /* -------------------------------------------------- 11) Dışa aktarım / yenileme */
 function exportCsv() {
@@ -1520,6 +1663,85 @@ function setAutoRefresh() {
   if (minutes > 0) APP.autoTimer = setInterval(function () { loadData(true); }, minutes * 60000);
 }
 
+/* --------------------------------------- Kaynak dosyadan yeni kayıt aktarımı */
+/**
+ * "Yeni Kayıtları Al" butonu. Kaynak takip dosyasına eklenen satırları hedef
+ * sayfaya aktarır (sunucuda syncNewRows çalışır), ardından paneli tazeler.
+ */
+function runSync() {
+  const btn = document.getElementById('sync-btn');
+  if (!btn) return;
+
+  if (typeof google === 'undefined' || !google.script || !google.script.run) {
+    toast(t('syncNone'), 'secondary');
+    return;
+  }
+
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + esc(t('syncRunning'));
+
+  google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false; btn.innerHTML = original;
+        if (!res || !res.ok) { toast(t('syncError', { m: (res && res.message) || '?' }), 'danger'); return; }
+        if (res.added > 0) { toast(t('syncDone', { n: res.added }), 'success'); loadData(true); }
+        else toast(t('syncNone'), 'secondary');
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false; btn.innerHTML = original;
+        toast(t('syncError', { m: (err && err.message) || err }), 'danger');
+      })
+      .runSyncFromDashboard();
+}
+
+/** Sağ altta kısa bilgi balonu. */
+function toast(message, tone) {
+  let box = document.getElementById('toast-box');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'toast-box';
+    box.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:9500;display:flex;' +
+                        'flex-direction:column;gap:8px;max-width:340px';
+    document.body.appendChild(box);
+  }
+  const el = document.createElement('div');
+  el.className = 'alert alert-' + (tone || 'secondary') + ' shadow-sm mb-0 py-2 px-3';
+  el.style.fontSize = '.85rem';
+  el.textContent = message;
+  box.appendChild(el);
+  setTimeout(function () { el.remove(); }, 5000);
+}
+
+/* ------------------------------------------------- Versiyon / Beta (Modül 3) */
+function betaBannerKapat() {
+  const b = document.getElementById('beta-banner');
+  if (b) b.style.display = 'none';
+}
+
+function _applyVersionUI(info) {
+  const banner = document.getElementById('beta-banner');
+  const bv = document.getElementById('bb-version');
+  if (bv) bv.textContent = 'v' + info.version;
+  if (banner && info.isBeta) banner.style.display = 'flex';
+
+  const vbv = document.getElementById('vb-version');
+  const vbl = document.getElementById('vb-beta-label');
+  if (vbv) vbv.textContent = 'v' + info.version + (info.buildDate ? ' · ' + info.buildDate : '');
+  if (vbl) { if (info.isBeta) vbl.classList.remove('hidden'); else vbl.classList.add('hidden'); }
+}
+
+function loadVersion() {
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+        .withSuccessHandler(_applyVersionUI)
+        .withFailureHandler(function () { _applyVersionUI({ version: '1.0', buildDate: '', isBeta: true }); })
+        .getAppVersion();
+  } else {
+    _applyVersionUI({ version: '1.0', buildDate: 'demo', isBeta: true });
+  }
+}
+
 /* ------------------------------------------------------------ Demo (yerel) */
 /** Apps Script dışında açıldığında panelin çalıştığını göstermek için üretilir. */
 function buildDemoPayload() {
@@ -1551,6 +1773,13 @@ function buildDemoPayload() {
       'First Shipment': rnd() < 0.12 ? '' : pad(ship.getDate()) + '.' + pad(ship.getMonth() + 1) + '.' + ship.getFullYear(),
       'Responsible': pick(owners),
       'Customer': pick(customers),
+      'Region': pick(['EU', 'VST', 'NA', 'APAC']),
+      'Comment': rnd() < 0.35 ? pick([
+        'Müşteri onayı bekleniyor, hafta içi tekrar aranacak.',
+        'EDI test dosyası gönderildi, geri dönüş yok.',
+        'Sevkiyat tarihi müşteri talebiyle 2 hafta ötelendi.',
+        'Kalite kaynaklı revizyon var, IS tekrar çalışılacak.'
+      ]) : '',
       'Request Date': pad(1 + Math.floor(rnd() * 28)) + '.' + pad(1 + Math.floor(rnd() * 12)) + '.' + year,
       'Next 12 Month EDI Availability EU': rnd() < 0.6 ? 'YES' : 'NO',
       'Next 12 Month EDI Availability VST': rnd() < 0.45 ? 'YES' : 'NO',
@@ -1562,12 +1791,14 @@ function buildDemoPayload() {
     ok: true, rows: rows,
     meta: {
       headers: ['Year', 'Bursa Ref', 'Project Name', 'Type', 'Status', 'IS Status', 'Order', 'First Shipment',
-                'Responsible', 'Customer', 'Request Date',
+                'Responsible', 'Customer', 'Region', 'Request Date', 'Comment',
                 'Next 12 Month EDI Availability EU', 'Next 12 Month EDI Availability VST'],
+      commentHeaders: ['Comment'],
       columnMap: { year: 'Year', ref: 'Bursa Ref', project: 'Project Name', type: 'Type', status: 'Status',
                    isStatus: 'IS Status', order: 'Order', firstShipment: 'First Shipment',
-                   owner: 'Responsible', customer: 'Customer', createdDate: 'Request Date',
-                   targetDate: null, closedDate: null, plant: null, comment: null,
+                   owner: 'Responsible', customer: 'Customer', region: 'Region',
+                   createdDate: 'Request Date', targetDate: null, closedDate: null,
+                   plant: null, comment: 'Comment',
                    ediEu: 'Next 12 Month EDI Availability EU', ediVst: 'Next 12 Month EDI Availability VST' },
       totalRows: rows.length, sheetName: 'DEMO', cached: false,
       generatedAt: pad(now.getDate()) + '.' + pad(now.getMonth() + 1) + '.' + now.getFullYear() + ' ' +
@@ -1577,5 +1808,248 @@ function buildDemoPayload() {
   };
 }
 </script>
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODÜL 1 — FEEDBACK WIDGET   (SETUP_CLAUDE.md standardı)
+     Geri bildirimler panelin veri dosyasındaki "Feedback" sekmesinde toplanır.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<style>
+  #fb-btn{position:fixed;bottom:24px;left:20px;display:flex;align-items:center;gap:8px;
+    padding:10px 18px;background:#1E293B;color:#fff;border:none;border-radius:99px;
+    font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.25);
+    z-index:8000;transition:all .18s ease;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+  #fb-btn:hover{background:#0F172A;transform:translateY(-2px);}
+  #fb-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);
+    z-index:8001;align-items:flex-end;justify-content:flex-start;padding:0 0 80px 20px;}
+  #fb-overlay.fb-open{display:flex;}
+  #fb-box{background:#fff;border-radius:16px;width:340px;box-shadow:0 8px 32px rgba(0,0,0,.2);
+    overflow:hidden;animation:fbSlide .2s ease;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+  @keyframes fbSlide{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
+  #fb-head{display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px;border-bottom:1px solid #E2E8F0;}
+  #fb-head span{font-size:14px;font-weight:700;color:#1E293B;}
+  #fb-head button{background:none;border:none;font-size:17px;cursor:pointer;color:#94A3B8;
+    padding:2px 5px;border-radius:4px;line-height:1;}
+  #fb-head button:hover{background:#F1F5F9;color:#1E293B;}
+  #fb-body{padding:14px 16px;display:flex;flex-direction:column;gap:12px;}
+  .fb-label{font-size:11px;font-weight:700;color:#94A3B8;text-transform:uppercase;
+    letter-spacing:.06em;display:block;margin-bottom:5px;}
+  .fb-required{color:#EF4444;}
+  #fb-type-wrap,#fb-pri-wrap{display:flex;gap:6px;}
+  .fb-type,.fb-pri{flex:1;padding:8px 4px;border:2px solid #E2E8F0;border-radius:8px;
+    background:#fff;font-size:12px;font-weight:600;color:#64748B;cursor:pointer;
+    transition:all .14s;text-align:center;font-family:inherit;}
+  .fb-type:hover,.fb-pri:hover{border-color:#94A3B8;}
+  .fb-type[data-v="Bug"].fb-sel        {border-color:#EF4444;background:#FEE2E2;color:#991B1B;}
+  .fb-type[data-v="Improvement"].fb-sel{border-color:#22C55E;background:#DCFCE7;color:#15803D;}
+  .fb-pri[data-v="Low"].fb-sel   {border-color:#3B82F6;background:#EFF6FF;color:#1D4ED8;}
+  .fb-pri[data-v="Medium"].fb-sel{border-color:#F59E0B;background:#FEF3C7;color:#92400E;}
+  .fb-pri[data-v="Urgent"].fb-sel{border-color:#EF4444;background:#FEE2E2;color:#991B1B;}
+  #fb-type-err,#fb-pri-err,#fb-msg-err{color:#EF4444;font-size:11px;display:none;margin-top:4px;}
+  #fb-message{width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;
+    font-size:13px;font-family:inherit;resize:vertical;min-height:90px;
+    outline:none;color:#1E293B;transition:border-color .14s;}
+  #fb-message:focus{border-color:#4A6CF7;}
+  #fb-message.fb-err{border-color:#EF4444;}
+  #fb-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;
+    border-top:1px solid #E2E8F0;}
+  .fb-cancel{padding:8px 14px;border:1px solid #E2E8F0;border-radius:6px;background:#fff;
+    font-size:13px;font-weight:600;color:#64748B;cursor:pointer;font-family:inherit;}
+  .fb-cancel:hover{background:#F1F5F9;}
+  .fb-submit{padding:8px 16px;border:none;border-radius:6px;background:#4A6CF7;
+    color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:background .14s;}
+  .fb-submit:hover{background:#3A5AE0;}
+  .fb-submit:disabled{background:#94A3B8;cursor:not-allowed;}
+  #fb-success{display:none;padding:28px 16px;text-align:center;}
+  #fb-success .fb-ok-icon{font-size:38px;margin-bottom:8px;}
+  #fb-success strong{font-size:15px;color:#1E293B;display:block;}
+  #fb-success p{color:#64748B;font-size:13px;margin-top:5px;}
+  @media(max-width:600px){
+    #fb-btn{bottom:16px;left:12px;padding:9px 14px;font-size:12px;}
+    #fb-overlay{padding:0 0 68px 12px;}
+    #fb-box{width:calc(100vw - 24px);}
+  }
+  @media print{ #fb-btn,#fb-overlay{display:none !important;} }
+</style>
+
+<button id="fb-btn" onclick="fbToggle()">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+       stroke="#4ADE80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>
+  Geri Bildirim
+</button>
+
+<div id="fb-overlay" onclick="fbOverlayClick(event)">
+  <div id="fb-box">
+    <div id="fb-head">
+      <span>Geri Bildirim</span>
+      <button onclick="fbClose()">&#x2715;</button>
+    </div>
+    <div id="fb-form-wrap">
+      <div id="fb-body">
+        <div>
+          <span class="fb-label">Tür <span class="fb-required">*</span></span>
+          <div id="fb-type-wrap">
+            <button type="button" class="fb-type" data-v="Bug"         onclick="fbType(this)">Bug</button>
+            <button type="button" class="fb-type" data-v="Improvement" onclick="fbType(this)">İyileştirme</button>
+          </div>
+          <div id="fb-type-err">Lütfen bir tür seçin.</div>
+        </div>
+        <div>
+          <span class="fb-label">Öncelik <span class="fb-required">*</span></span>
+          <div id="fb-pri-wrap">
+            <button type="button" class="fb-pri" data-v="Low"    onclick="fbPri(this)">Düşük</button>
+            <button type="button" class="fb-pri" data-v="Medium" onclick="fbPri(this)">Orta</button>
+            <button type="button" class="fb-pri" data-v="Urgent" onclick="fbPri(this)">Acil</button>
+          </div>
+          <div id="fb-pri-err">Lütfen bir öncelik seçin.</div>
+        </div>
+        <div>
+          <span class="fb-label">Mesaj <span class="fb-required">*</span></span>
+          <textarea id="fb-message" placeholder="Geri bildiriminizi yazın..."></textarea>
+          <div id="fb-msg-err">Lütfen mesajınızı girin.</div>
+        </div>
+      </div>
+      <div id="fb-foot">
+        <button class="fb-cancel" onclick="fbClose()">İptal</button>
+        <button class="fb-submit" id="fb-submit-btn" onclick="fbSubmit()">Gönder</button>
+      </div>
+    </div>
+    <div id="fb-success">
+      <div class="fb-ok-icon">&#x2705;</div>
+      <strong>Teşekkürler!</strong>
+      <p>Geri bildiriminiz kaydedildi.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Sekme adı bu değerden üretilir → veri dosyasında "Feedback" sekmesi açılır.
+  var FB_APP_NAME = 'Feedback';
+
+  var _fbPriority = '', _fbType = '';
+
+  function fbToggle(){document.getElementById('fb-overlay').classList.contains('fb-open')?fbClose():fbOpen();}
+  function fbOpen(){fbReset();document.getElementById('fb-overlay').classList.add('fb-open');}
+  function fbClose(){document.getElementById('fb-overlay').classList.remove('fb-open');}
+  function fbOverlayClick(e){if(e.target===document.getElementById('fb-overlay'))fbClose();}
+  function fbType(btn){
+    document.querySelectorAll('.fb-type').forEach(function(b){b.classList.remove('fb-sel');});
+    btn.classList.add('fb-sel'); _fbType=btn.getAttribute('data-v');
+    document.getElementById('fb-type-err').style.display='none';
+  }
+  function fbPri(btn){
+    document.querySelectorAll('.fb-pri').forEach(function(b){b.classList.remove('fb-sel');});
+    btn.classList.add('fb-sel'); _fbPriority=btn.getAttribute('data-v');
+    document.getElementById('fb-pri-err').style.display='none';
+  }
+  function fbReset(){
+    _fbPriority=''; _fbType='';
+    document.querySelectorAll('.fb-pri,.fb-type').forEach(function(b){b.classList.remove('fb-sel');});
+    document.getElementById('fb-message').value='';
+    document.getElementById('fb-message').classList.remove('fb-err');
+    ['fb-type-err','fb-pri-err','fb-msg-err'].forEach(function(id){
+      document.getElementById(id).style.display='none';
+    });
+    document.getElementById('fb-form-wrap').style.display='';
+    document.getElementById('fb-success').style.display='none';
+    var btn=document.getElementById('fb-submit-btn');
+    btn.disabled=false; btn.textContent='Gönder';
+  }
+  function fbSubmit(){
+    var msg=document.getElementById('fb-message').value.trim();
+    var ok=true;
+    if(!_fbType){document.getElementById('fb-type-err').style.display='block';ok=false;}
+    if(!_fbPriority){document.getElementById('fb-pri-err').style.display='block';ok=false;}
+    if(!msg){
+      document.getElementById('fb-message').classList.add('fb-err');
+      document.getElementById('fb-msg-err').style.display='block'; ok=false;
+    } else {
+      document.getElementById('fb-message').classList.remove('fb-err');
+      document.getElementById('fb-msg-err').style.display='none';
+    }
+    if(!ok) return;
+    var btn=document.getElementById('fb-submit-btn');
+    btn.disabled=true; btn.textContent='Gönderiliyor...';
+
+    if(typeof google==='undefined'||!google.script||!google.script.run){
+      // Yerel önizleme: sunucu yok.
+      document.getElementById('fb-form-wrap').style.display='none';
+      document.getElementById('fb-success').style.display='block';
+      setTimeout(fbClose, 2200);
+      return;
+    }
+
+    google.script.run
+      .withSuccessHandler(function(){
+        document.getElementById('fb-form-wrap').style.display='none';
+        document.getElementById('fb-success').style.display='block';
+        setTimeout(fbClose, 2200);
+      })
+      .withFailureHandler(function(err){
+        btn.disabled=false; btn.textContent='Gönder';
+        alert('Hata: '+(err.message||err));
+      })
+      .submitFeedback({appName:FB_APP_NAME, feedbackType:_fbType, priority:_fbPriority, message:msg});
+  }
+  document.addEventListener('keydown', function(e){if(e.key==='Escape') fbClose();});
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODÜL 2 — GİRİŞ / ÇIKIŞ LOGLAMA   (SETUP_CLAUDE.md standardı)
+     Not: şablon etiketleri tırnak içine alındı; böylece dosya Apps Script
+     dışında (yerel önizlemede) açıldığında da JavaScript geçerli kalır.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+  var SESSION_ID = "<?= sessionId ?>";
+  var TIMEOUT_MS = (parseInt("<?= timeoutMin ?>", 10) || 10) * 60 * 1000;
+
+  var sessionStart = Date.now();
+  var hiddenAt     = null;
+  var exitLogged   = false;
+
+  function _hasServer(){ return typeof google !== 'undefined' && google.script && google.script.run; }
+
+  function _logExit(exitTimestamp, durationMs) {
+    if (exitLogged || !SESSION_ID || !_hasServer()) return;
+    exitLogged = true;
+    google.script.run.logExit(SESSION_ID, exitTimestamp, Math.round(durationMs / 1000));
+  }
+
+  function _newSession() {
+    if (!_hasServer()) return;
+    exitLogged = false;
+    google.script.run
+      .withSuccessHandler(function(result) {
+        SESSION_ID   = result.sessionId;
+        sessionStart = Date.now();
+        hiddenAt     = null;
+      })
+      .createSession();
+  }
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'hidden') {
+      hiddenAt = Date.now();
+    } else {
+      if (hiddenAt === null) return;
+      var elapsed = Date.now() - hiddenAt;
+      if (elapsed >= TIMEOUT_MS) {
+        _logExit(hiddenAt, hiddenAt - sessionStart);
+        _newSession();
+      } else {
+        hiddenAt = null;
+      }
+    }
+  });
+
+  window.addEventListener('beforeunload', function() {
+    if (exitLogged) return;
+    var exitAt = hiddenAt !== null ? hiddenAt : Date.now();
+    _logExit(exitAt, exitAt - sessionStart);
+  });
+</script>
+
 </body>
 </html>
