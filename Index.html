@@ -170,9 +170,7 @@
         <div class="d-flex align-items-center gap-2 flex-wrap">
             <span class="beta-tag">BETA</span>
             <span>IS Validation Dashboard <strong id="bb-version" style="color:var(--valeo-green)"></strong>
-                <span class="text-white-50" data-i18n="betaText">— aktif geliştirme aşamasındadır. Geri bildiriminiz için</span>
-                <button class="beta-link" onclick="fbToggle();betaBannerKapat();">Geri Bildirim</button>
-                <span class="text-white-50" data-i18n="betaText2">butonunu kullanın.</span></span>
+                <span class="text-white-50" data-i18n="betaText">— aktif geliştirme aşamasındadır.</span></span>
         </div>
         <button class="beta-close" onclick="betaBannerKapat();" title="Kapat">&#x2715;</button>
     </div>
@@ -484,8 +482,14 @@ const I18N = {
     navSync: 'Yeni Kayıtları Al', syncRunning: 'Aktarılıyor...',
     syncDone: '{n} yeni kayıt aktarıldı.', syncNone: 'Aktarılacak yeni kayıt yok.',
     syncError: 'Aktarım hatası: {m}',
-    betaText: '— aktif geliştirme aşamasındadır. Geri bildiriminiz için',
-    betaText2: 'butonunu kullanın.',
+    betaText: '— aktif geliştirme aşamasındadır.',
+    fbTitle: 'Geri Bildirim', fbType: 'Tür', fbTypeBug: 'Hata', fbTypeImp: 'İyileştirme',
+    fbPriority: 'Öncelik', fbLow: 'Düşük', fbMed: 'Orta', fbUrgent: 'Acil',
+    fbMessage: 'Mesaj', fbMsgPh: 'Geri bildiriminizi yazın...',
+    fbCancel: 'İptal', fbSend: 'Gönder', fbSending: 'Gönderiliyor...',
+    fbErrType: 'Lütfen bir tür seçin.', fbErrPri: 'Lütfen bir öncelik seçin.',
+    fbErrMsg: 'Lütfen mesajınızı girin.',
+    fbThanks: 'Teşekkürler!', fbSaved: 'Geri bildiriminiz kaydedildi.', fbError: 'Hata',
     navAuto: 'Otomatik yenileme', autoOff: 'Otomatik yenileme: Kapalı',
     auto5: 'Her 5 dakikada', auto15: 'Her 15 dakikada', auto30: 'Her 30 dakikada',
 
@@ -558,8 +562,14 @@ const I18N = {
     navSync: 'Pull New Records', syncRunning: 'Importing...',
     syncDone: '{n} new records imported.', syncNone: 'No new records to import.',
     syncError: 'Import error: {m}',
-    betaText: '— under active development. For feedback please use the',
-    betaText2: 'button.',
+    betaText: '— under active development.',
+    fbTitle: 'Feedback', fbType: 'Type', fbTypeBug: 'Bug', fbTypeImp: 'Improvement',
+    fbPriority: 'Priority', fbLow: 'Low', fbMed: 'Medium', fbUrgent: 'Urgent',
+    fbMessage: 'Message', fbMsgPh: 'Write your feedback...',
+    fbCancel: 'Cancel', fbSend: 'Send', fbSending: 'Sending...',
+    fbErrType: 'Please select a type.', fbErrPri: 'Please select a priority.',
+    fbErrMsg: 'Please enter your message.',
+    fbThanks: 'Thank you!', fbSaved: 'Your feedback has been recorded.', fbError: 'Error',
     navAuto: 'Auto refresh', autoOff: 'Auto refresh: Off',
     auto5: 'Every 5 minutes', auto15: 'Every 15 minutes', auto30: 'Every 30 minutes',
 
@@ -1815,17 +1825,22 @@ function buildDemoPayload() {
      Geri bildirimler panelin veri dosyasındaki "Feedback" sekmesinde toplanır.
      ═══════════════════════════════════════════════════════════════════════ -->
 <style>
-  #fb-btn{position:fixed;bottom:24px;left:20px;display:flex;align-items:center;gap:11px;
-    padding:12px 24px 12px 18px;background:#141d2e;color:#fff;border:none;border-radius:999px;
-    font-size:15px;font-weight:700;letter-spacing:.2px;cursor:pointer;
+  /* Sag altta gizli durur; fare yaklasinca disari kayar. */
+  #fb-btn{position:fixed;bottom:26px;right:0;display:flex;align-items:center;gap:11px;
+    padding:12px 22px 12px 16px;background:#141d2e;color:#fff;border:none;
+    border-radius:999px 0 0 999px;
+    font-size:15px;font-weight:700;letter-spacing:.2px;cursor:pointer;white-space:nowrap;
     box-shadow:0 6px 20px rgba(0,0,0,.30);
-    z-index:8000;transition:background .18s ease,transform .18s ease,box-shadow .18s ease;
-    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
-  #fb-btn:hover{background:#0b1322;transform:translateY(-2px);box-shadow:0 9px 26px rgba(0,0,0,.36);}
-  #fb-btn:active{transform:translateY(0);}
+    z-index:8000;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    transform:translateX(calc(100% - 52px));
+    transition:transform .28s cubic-bezier(.22,.61,.36,1),background .18s ease,box-shadow .18s ease;}
+  #fb-btn:hover,#fb-btn:focus-visible,#fb-btn.fb-peek{transform:translateX(0);
+    background:#0b1322;box-shadow:0 9px 26px rgba(0,0,0,.36);}
   #fb-btn svg{flex:0 0 auto;}
+  /* Sag kenarda gorunmez yakalama seridi — fare yaklasinca buton acilir. */
+  #fb-hotzone{position:fixed;right:0;bottom:0;width:90px;height:150px;z-index:7999;}
   #fb-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);
-    z-index:8001;align-items:flex-end;justify-content:flex-start;padding:0 0 80px 20px;}
+    z-index:8001;align-items:flex-end;justify-content:flex-end;padding:0 20px 84px 0;}
   #fb-overlay.fb-open{display:flex;}
   #fb-box{background:#fff;border-radius:16px;width:340px;box-shadow:0 8px 32px rgba(0,0,0,.2);
     overflow:hidden;animation:fbSlide .2s ease;
@@ -1871,12 +1886,15 @@ function buildDemoPayload() {
   #fb-success strong{font-size:15px;color:#1E293B;display:block;}
   #fb-success p{color:#64748B;font-size:13px;margin-top:5px;}
   @media(max-width:600px){
-    #fb-btn{bottom:16px;left:12px;padding:10px 18px 10px 14px;font-size:13.5px;gap:9px;}
-    #fb-overlay{padding:0 0 68px 12px;}
+    #fb-btn{bottom:18px;padding:10px 18px 10px 14px;font-size:13.5px;gap:9px;
+      transform:translateX(calc(100% - 46px));}
+    #fb-overlay{padding:0 12px 70px 0;}
     #fb-box{width:calc(100vw - 24px);}
   }
   @media print{ #fb-btn,#fb-overlay{display:none !important;} }
 </style>
+
+<div id="fb-hotzone"></div>
 
 <button id="fb-btn" onclick="fbToggle()">
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
@@ -1884,49 +1902,51 @@ function buildDemoPayload() {
     <rect x="3" y="4" width="18" height="14" rx="3"/>
     <path d="M8 18v3.2L12.2 18"/>
   </svg>
-  Geri Bildirim
+  <span data-i18n="fbTitle">Geri Bildirim</span>
 </button>
 
 <div id="fb-overlay" onclick="fbOverlayClick(event)">
   <div id="fb-box">
     <div id="fb-head">
-      <span>Geri Bildirim</span>
+      <span data-i18n="fbTitle">Geri Bildirim</span>
       <button onclick="fbClose()">&#x2715;</button>
     </div>
     <div id="fb-form-wrap">
       <div id="fb-body">
         <div>
-          <span class="fb-label">Tür <span class="fb-required">*</span></span>
+          <span class="fb-label"><span data-i18n="fbType">Tür</span> <span class="fb-required">*</span></span>
           <div id="fb-type-wrap">
-            <button type="button" class="fb-type" data-v="Bug"         onclick="fbType(this)">Bug</button>
-            <button type="button" class="fb-type" data-v="Improvement" onclick="fbType(this)">İyileştirme</button>
+            <button type="button" class="fb-type" data-v="Bug"         onclick="fbType(this)" data-i18n="fbTypeBug">Hata</button>
+            <button type="button" class="fb-type" data-v="Improvement" onclick="fbType(this)" data-i18n="fbTypeImp">İyileştirme</button>
           </div>
-          <div id="fb-type-err">Lütfen bir tür seçin.</div>
+          <div id="fb-type-err" data-i18n="fbErrType">Lütfen bir tür seçin.</div>
         </div>
         <div>
-          <span class="fb-label">Öncelik <span class="fb-required">*</span></span>
+          <span class="fb-label"><span data-i18n="fbPriority">Öncelik</span> <span class="fb-required">*</span></span>
           <div id="fb-pri-wrap">
-            <button type="button" class="fb-pri" data-v="Low"    onclick="fbPri(this)">Düşük</button>
-            <button type="button" class="fb-pri" data-v="Medium" onclick="fbPri(this)">Orta</button>
-            <button type="button" class="fb-pri" data-v="Urgent" onclick="fbPri(this)">Acil</button>
+            <button type="button" class="fb-pri" data-v="Low"    onclick="fbPri(this)" data-i18n="fbLow">Düşük</button>
+            <button type="button" class="fb-pri" data-v="Medium" onclick="fbPri(this)" data-i18n="fbMed">Orta</button>
+            <button type="button" class="fb-pri" data-v="Urgent" onclick="fbPri(this)" data-i18n="fbUrgent">Acil</button>
           </div>
-          <div id="fb-pri-err">Lütfen bir öncelik seçin.</div>
+          <div id="fb-pri-err" data-i18n="fbErrPri">Lütfen bir öncelik seçin.</div>
         </div>
         <div>
-          <span class="fb-label">Mesaj <span class="fb-required">*</span></span>
-          <textarea id="fb-message" placeholder="Geri bildiriminizi yazın..."></textarea>
-          <div id="fb-msg-err">Lütfen mesajınızı girin.</div>
+          <span class="fb-label"><span data-i18n="fbMessage">Mesaj</span> <span class="fb-required">*</span></span>
+          <textarea id="fb-message" data-i18n-ph="fbMsgPh" placeholder="Geri bildiriminizi yazın..."></textarea>
+          <div id="fb-msg-err" data-i18n="fbErrMsg">Lütfen mesajınızı girin.</div>
         </div>
       </div>
       <div id="fb-foot">
-        <button class="fb-cancel" onclick="fbClose()">İptal</button>
-        <button class="fb-submit" id="fb-submit-btn" onclick="fbSubmit()">Gönder</button>
+        <button class="fb-cancel" onclick="fbClose()" data-i18n="fbCancel">İptal</button>
+        <button class="fb-submit" id="fb-submit-btn" onclick="fbSubmit()">
+          <span id="fb-submit-label" data-i18n="fbSend">Gönder</span>
+        </button>
       </div>
     </div>
     <div id="fb-success">
       <div class="fb-ok-icon">&#x2705;</div>
-      <strong>Teşekkürler!</strong>
-      <p>Geri bildiriminiz kaydedildi.</p>
+      <strong data-i18n="fbThanks">Teşekkürler!</strong>
+      <p data-i18n="fbSaved">Geri bildiriminiz kaydedildi.</p>
     </div>
   </div>
 </div>
@@ -1936,6 +1956,21 @@ function buildDemoPayload() {
   var FB_APP_NAME = 'Feedback';
 
   var _fbPriority = '', _fbType = '';
+
+  /** Ana paneldeki ceviri fonksiyonunu kullanir; yoksa verilen metne duser. */
+  function fbT(key, fallback) {
+    return (typeof t === 'function') ? t(key) : fallback;
+  }
+
+  // Sag kenardaki gorunmez serit: fare yaklasinca buton disari kayar.
+  (function () {
+    var zone = document.getElementById('fb-hotzone');
+    var btn  = document.getElementById('fb-btn');
+    if (!zone || !btn) return;
+    zone.addEventListener('mouseenter', function () { btn.classList.add('fb-peek'); });
+    zone.addEventListener('mouseleave', function () { btn.classList.remove('fb-peek'); });
+    btn.addEventListener('mouseleave', function () { btn.classList.remove('fb-peek'); });
+  })();
 
   function fbToggle(){document.getElementById('fb-overlay').classList.contains('fb-open')?fbClose():fbOpen();}
   function fbOpen(){fbReset();document.getElementById('fb-overlay').classList.add('fb-open');}
@@ -1962,7 +1997,8 @@ function buildDemoPayload() {
     document.getElementById('fb-form-wrap').style.display='';
     document.getElementById('fb-success').style.display='none';
     var btn=document.getElementById('fb-submit-btn');
-    btn.disabled=false; btn.textContent='Gönder';
+    btn.disabled=false;
+    document.getElementById('fb-submit-label').textContent=fbT('fbSend','Gönder');
   }
   function fbSubmit(){
     var msg=document.getElementById('fb-message').value.trim();
@@ -1978,7 +2014,8 @@ function buildDemoPayload() {
     }
     if(!ok) return;
     var btn=document.getElementById('fb-submit-btn');
-    btn.disabled=true; btn.textContent='Gönderiliyor...';
+    var label=document.getElementById('fb-submit-label');
+    btn.disabled=true; label.textContent=fbT('fbSending','Gönderiliyor...');
 
     if(typeof google==='undefined'||!google.script||!google.script.run){
       // Yerel önizleme: sunucu yok.
@@ -1995,8 +2032,8 @@ function buildDemoPayload() {
         setTimeout(fbClose, 2200);
       })
       .withFailureHandler(function(err){
-        btn.disabled=false; btn.textContent='Gönder';
-        alert('Hata: '+(err.message||err));
+        btn.disabled=false; label.textContent=fbT('fbSend','Gönder');
+        alert(fbT('fbError','Hata')+': '+(err.message||err));
       })
       .submitFeedback({appName:FB_APP_NAME, feedbackType:_fbType, priority:_fbPriority, message:msg});
   }

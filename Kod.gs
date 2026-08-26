@@ -95,7 +95,21 @@ const SYNC = {
 
   DRY_RUN: false,                  // true → yazma yapmaz, sadece raporlar
   LOG_SHEET_NAME: 'Sync Log',
-  MAX_ROWS_PER_RUN: 500
+  MAX_ROWS_PER_RUN: 500,
+
+  // --- Otomatik kontrol sıklığı ---
+  TRIGGER_MINUTES: 15,             // Geçerli değerler: 1, 5, 10, 15, 30
+
+  // --- Yeni kayıt bildirimi ---
+  NOTIFY_ENABLED: true,
+  NOTIFY_RECIPIENTS: [
+    'alpay.mutlu@valeo.com',
+    'resul.akbulut@valeo.com',
+    'cem.kapitan@valeo.com',
+    'yasar.kisa@valeo.com'
+  ],
+  NOTIFY_ACTION_OWNER: 'Alpay Mutlu',   // Aksiyon takibi rica edilen kişi
+  NOTIFY_MAX_CARDS: 20                  // E-postada en fazla kaç kart gösterilsin
 };
 
 /**
@@ -1026,6 +1040,13 @@ function syncNewRows(silent) {
     logSync_(targetSs, newRows.length, skipped, addedKeys, mapping, useKey, warning);
     clearCache();
 
+    // Bildirim e-postası — gönderilemezse aktarım yine de başarılı sayılır.
+    try {
+      notifyNewRecords_(targetHeaders, newRows);
+    } catch (mailError) {
+      Logger.log('Bildirim e-postasi gonderilemedi: ' + mailError);
+    }
+
     return finishSync_({ ok: true, added: newRows.length, skipped: skipped, mapping: mapping, warning: warning,
                          message: newRows.length + ' yeni kayit aktarildi.' + (warning ? ' ' + warning : '') });
 
@@ -1387,11 +1408,146 @@ function syncDryRun() {
   }
 }
 
-/** Senkronizasyonu 15 dakikada bir çalıştıran tetikleyiciyi kurar. */
+/* ============================================================================
+ *  YENİ KAYIT BİLDİRİMİ
+ *  Aktarım yeni satır eklediğinde ilgili kişilere kart görünümlü e-posta gider.
+ * ========================================================================== */
+
+function notifyNewRecords_(targetHeaders, newRows) {
+  if (!SYNC.NOTIFY_ENABLED) return;
+  const recipients = (SYNC.NOTIFY_RECIPIENTS || []).filter(String);
+  if (!recipients.length || !newRows.length) return;
+
+  const tz = Session.getScriptTimeZone() || 'Europe/Istanbul';
+  const now = new Date();
+  const stamp = Utilities.formatDate(now, tz, 'dd.MM.yyyy');
+  const clock = Utilities.formatDate(now, tz, 'HH:mm');
+
+  const norm = targetHeaders.map(normalizeHeader_);
+  const refIndex = norm.indexOf(normalizeHeader_(SYNC.KEY_TARGET_HEADER));
+  const projectIndex = norm.indexOf(normalizeHeader_('Project Name'));
+
+  // Kartlarda IS Status'a kadar olan alanlar gösterilir (aktarımın doldurdukları).
+  let lastIndex = norm.indexOf(normalizeHeader_('IS Status'));
+  if (lastIndex === -1) lastIndex = targetHeaders.length - 1;
+
+  const subject = newRows.length === 1
+      ? 'IS Validation — Yeni kayit: ' + String(newRows[0][refIndex] || '').trim()
+      : 'IS Validation — ' + newRows.length + ' yeni kayit eklendi';
+
+  MailApp.sendEmail({
+    to: recipients.join(','),
+    subject: subject,
+    htmlBody: buildNewRecordsHtml_(targetHeaders, newRows, lastIndex, refIndex, projectIndex, stamp, clock),
+    name: 'IS Validation Dashboard'
+  });
+
+  Logger.log('Bildirim gonderildi: ' + recipients.join(', '));
+}
+
+function buildNewRecordsHtml_(headers, rows, lastIndex, refIndex, projectIndex, stamp, clock) {
+  let dashboardUrl = '';
+  try { dashboardUrl = ScriptApp.getService().getUrl() || ''; } catch (e) { dashboardUrl = ''; }
+
+  const owner = SYNC.NOTIFY_ACTION_OWNER || '';
+  const esc = function (v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+
+  let html = '<div style="font-family:Segoe UI,Arial,sans-serif;background:#f4f7f6;padding:22px 12px;">';
+  html += '<div style="max-width:680px;margin:0 auto;">';
+
+  // --- Başlık ---
+  html += '<div style="background:#002b49;border-radius:12px 12px 0 0;padding:20px 24px;">' +
+          '<div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:#78c800;">' +
+          'IS VALIDATION DASHBOARD</div>' +
+          '<div style="font-size:20px;font-weight:700;color:#ffffff;margin-top:6px;">' +
+          rows.length + ' yeni kayit eklendi</div>' +
+          '<div style="font-size:12px;color:#a9b6c4;margin-top:8px;">' +
+          'IAM Projects Sales &amp; Turnovers &rarr; Bursa Follow Up' +
+          '</div></div>';
+
+  // --- Eklenme zamanı ---
+  html += '<div style="background:#0d2f4f;padding:11px 24px;color:#dbe4ec;font-size:12.5px;">' +
+          '<b style="color:#ffffff;">Eklenme tarihi:</b> ' + esc(stamp) +
+          ' &nbsp;&nbsp;<b style="color:#ffffff;">Saat:</b> ' + esc(clock) + '</div>';
+
+  // --- Aksiyon uyarısı ---
+  html += '<div style="background:#fff8e6;border-left:4px solid #ffc107;padding:15px 20px;font-size:13.5px;color:#5c4708;">' +
+          '<b>Aksiyon gerekiyor.</b> Yeni kayitlar <b>Not in Liberation</b> statusuyle acilmistir. ' +
+          (owner ? 'IS Validation sureci icin <b>' + esc(owner) + '</b>\'dan aksiyonlarin takip edilmesini rica ederiz. ' : '') +
+          'Order, First Shipment ve EDI bilgileri takip sayfasindan tamamlanmalidir.' +
+          '</div>';
+
+  // --- Kartlar ---
+  const limit = Math.min(rows.length, SYNC.NOTIFY_MAX_CARDS || 20);
+  for (let r = 0; r < limit; r++) {
+    const row = rows[r];
+    const ref = String(row[refIndex] || '').trim() || '—';
+    const project = projectIndex !== -1 ? String(row[projectIndex] || '').trim() : '';
+
+    html += '<div style="background:#ffffff;margin-top:14px;border:1px solid #e3e8ee;border-radius:10px;overflow:hidden;">';
+    html += '<div style="background:#0d2f4f;color:#ffffff;padding:11px 16px;font-size:14px;font-weight:700;">' +
+            esc(ref) + (project ? ' &middot; ' + esc(project) : '') + '</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12.5px;">';
+
+    let printed = 0;
+    for (let c = 0; c <= lastIndex && c < headers.length; c++) {
+      if (!headers[c]) continue;
+      const value = String(row[c] == null ? '' : row[c]).trim();
+      const bg = printed % 2 ? '#f7f9fb' : '#ffffff';
+      const isStatusCell = normalizeHeader_(headers[c]) === normalizeHeader_('IS Status');
+      html += '<tr style="background:' + bg + ';">' +
+              '<td style="padding:8px 16px;color:#002b49;font-weight:600;width:42%;border-bottom:1px solid #eef2f5;">' +
+              esc(headers[c]) + '</td>' +
+              '<td style="padding:8px 16px;border-bottom:1px solid #eef2f5;' +
+              (isStatusCell ? 'color:#b26a00;font-weight:700;' : 'color:#333;') + '">' +
+              (value === '' ? '<span style="color:#9aa5b1;">&mdash;</span>' : esc(value)) + '</td></tr>';
+      printed++;
+    }
+    html += '</table></div>';
+  }
+
+  if (rows.length > limit) {
+    html += '<div style="background:#ffffff;margin-top:12px;padding:12px 16px;border:1px solid #e3e8ee;' +
+            'border-radius:10px;font-size:12.5px;color:#6c757d;">ve ' + (rows.length - limit) +
+            ' kayit daha. Tamamini panelde goruntuleyebilirsiniz.</div>';
+  }
+
+  // --- Buton ve dipnot ---
+  if (dashboardUrl) {
+    html += '<div style="text-align:center;margin-top:20px;">' +
+            '<a href="' + dashboardUrl + '" style="background:#78c800;color:#ffffff;padding:12px 26px;' +
+            'border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">' +
+            'Panele Git</a></div>';
+  }
+  html += '<div style="text-align:center;color:#9aa5b1;font-size:11px;margin-top:18px;line-height:1.6;">' +
+          'Bu e-posta IS Validation Dashboard tarafindan otomatik uretilmistir.<br>' +
+          'Kaynak dosya ' + (SYNC.TRIGGER_MINUTES || 15) + ' dakikada bir kontrol edilmektedir.</div>';
+
+  html += '</div></div>';
+  return html;
+}
+
+/** TEST — bildirim e-postasinin gorunumunu ornek kayitla gonderir. */
+function testNotificationMail() {
+  const headers = ['Year', 'Project Name', 'Type', 'Region', 'Customer', 'Extension or SK',
+                   'Bursa Ref', 'VS/OES Ref', 'IS Status'];
+  const rows = [['2028', 'DENEME KITI', 'DENEME', '', 'DENEME SERVICE', 'NO',
+                 'DENEME 999', 'DENEME 234', 'Not in Liberation']];
+  notifyNewRecords_(headers, rows);
+  Logger.log('Test bildirimi gonderildi: ' + SYNC.NOTIFY_RECIPIENTS.join(', '));
+}
+
+/** Senkronizasyonu düzenli aralıkla çalıştıran tetikleyiciyi kurar. */
 function installSyncTrigger() {
   removeSyncTrigger();
-  ScriptApp.newTrigger('syncNewRows').timeBased().everyMinutes(15).create();
-  return 'Senkronizasyon tetikleyicisi kuruldu (15 dakikada bir).';
+  const minutes = SYNC.TRIGGER_MINUTES || 15;
+  ScriptApp.newTrigger('syncNewRows').timeBased().everyMinutes(minutes).create();
+  const message = 'Senkronizasyon tetikleyicisi kuruldu (' + minutes + ' dakikada bir).';
+  Logger.log(message);
+  return message;
 }
 
 function removeSyncTrigger() {
