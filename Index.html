@@ -1685,8 +1685,9 @@ function runSync() {
       .withSuccessHandler(function (res) {
         btn.disabled = false; btn.innerHTML = original;
         if (!res || !res.ok) { toast(t('syncError', { m: (res && res.message) || '?' }), 'danger'); return; }
+        if (res.warning) toast(res.warning, 'warning');
         if (res.added > 0) { toast(t('syncDone', { n: res.added }), 'success'); loadData(true); }
-        else toast(t('syncNone'), 'secondary');
+        else if (!res.warning) toast(t('syncNone'), 'secondary');
       })
       .withFailureHandler(function (err) {
         btn.disabled = false; btn.innerHTML = original;

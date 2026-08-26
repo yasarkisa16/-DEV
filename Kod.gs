@@ -839,6 +839,17 @@ function syncNewRows(silent) {
     }
     const useKey = keyTargetIndex !== -1 && keySourceIndex !== -1;
 
+    // Anahtar beklenip bulunamadıysa sessizce satır numarasına düşmek yerine uyar:
+    // bu modda kaynağa ARAYA eklenen satırlar atlanabilir.
+    let warning = '';
+    if (!useKey && SYNC.KEY_TARGET_HEADER) {
+      warning = 'UYARI: "' + SYNC.KEY_TARGET_HEADER + '" anahtar kolonu ' +
+                (keyTargetIndex === -1 ? 'hedefte' : 'kaynakta') +
+                ' bulunamadi. Satir numarasi takibine gecildi — araya eklenen satirlar atlanabilir. ' +
+                'debugSyncMapping() ile kontrol edin.';
+      Logger.log(warning);
+    }
+
     const props = PropertiesService.getScriptProperties();
     const watermark = parseInt(props.getProperty('SYNC_LAST_SOURCE_ROW') || '0', 10);
 
@@ -886,23 +897,23 @@ function syncNewRows(silent) {
     }
 
     if (!newRows.length) {
-      return finishSync_({ ok: true, added: 0, skipped: skipped, mapping: mapping,
-                           message: 'Yeni kayit bulunamadi.' });
+      return finishSync_({ ok: true, added: 0, skipped: skipped, mapping: mapping, warning: warning,
+                           message: 'Yeni kayit bulunamadi.' + (warning ? ' ' + warning : '') });
     }
 
     if (SYNC.DRY_RUN) {
-      return finishSync_({ ok: true, added: 0, skipped: skipped, mapping: mapping, dryRun: true,
-                           message: 'DRY_RUN acik — ' + newRows.length + ' satir eklenecekti.' });
+      return finishSync_({ ok: true, added: 0, skipped: skipped, mapping: mapping, dryRun: true, warning: warning,
+                           message: 'DRY_RUN acik — ' + newRows.length + ' satir eklenecekti.' + (warning ? ' ' + warning : '') });
     }
 
     targetSheet.getRange(targetSheet.getLastRow() + 1, 1, newRows.length, width).setValues(newRows);
     if (!useKey) props.setProperty('SYNC_LAST_SOURCE_ROW', String(lastProcessedRow));
 
-    logSync_(targetSs, newRows.length, skipped, addedKeys, mapping, useKey);
+    logSync_(targetSs, newRows.length, skipped, addedKeys, mapping, useKey, warning);
     clearCache();
 
-    return finishSync_({ ok: true, added: newRows.length, skipped: skipped, mapping: mapping,
-                         message: newRows.length + ' yeni kayit aktarildi.' });
+    return finishSync_({ ok: true, added: newRows.length, skipped: skipped, mapping: mapping, warning: warning,
+                         message: newRows.length + ' yeni kayit aktarildi.' + (warning ? ' ' + warning : '') });
 
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
@@ -924,7 +935,7 @@ function logSync_(ss, added, skipped, keys, mapping, useKey, errorMessage) {
   let sheet = ss.getSheetByName(SYNC.LOG_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SYNC.LOG_SHEET_NAME);
-    sheet.appendRow(['Zaman', 'Eklenen', 'Atlanan', 'Yöntem', 'Eşleşen Kolon', 'Eklenen Anahtarlar', 'Hata']);
+    sheet.appendRow(['Zaman', 'Eklenen', 'Atlanan', 'Yöntem', 'Eşleşen Kolon', 'Eklenen Anahtarlar', 'Hata / Uyarı']);
     sheet.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground('#002b49').setFontColor('#FFFFFF');
     sheet.setFrozenRows(1);
   }
@@ -940,7 +951,7 @@ function logSync_(ss, added, skipped, keys, mapping, useKey, errorMessage) {
 /** Panelin "Yeni Kayıtları Al" butonu bu fonksiyonu çağırır. */
 function runSyncFromDashboard() {
   const r = syncNewRows(true);
-  return { ok: r.ok, added: r.added || 0, message: r.message || '' };
+  return { ok: r.ok, added: r.added || 0, message: r.message || '', warning: r.warning || '' };
 }
 
 /** Senkronizasyonu 15 dakikada bir çalıştıran tetikleyiciyi kurar. */
@@ -994,8 +1005,25 @@ function debugSyncMapping() {
     Logger.log('--- ESLESMEYEN HEDEF KOLONLARI ---');
     Logger.log(unmatched.length ? unmatched.join(' | ') : '(yok)');
 
+    // --- Anahtar kolonu iki tarafta da doğrula ---
     const keyIdx = targetHeaders.map(normalizeHeader_).indexOf(normalizeHeader_(SYNC.KEY_TARGET_HEADER));
-    Logger.log('Anahtar kolon "' + SYNC.KEY_TARGET_HEADER + '": ' + (keyIdx === -1 ? 'HEDEFTE BULUNAMADI (satir numarasi ile calisilacak)' : 'bulundu'));
+    let keySrc = -1;
+    if (SYNC.KEY_SOURCE_HEADER) {
+      keySrc = sourceHeaders.map(normalizeHeader_).indexOf(normalizeHeader_(SYNC.KEY_SOURCE_HEADER));
+    } else if (keyIdx !== -1) {
+      const km = mapping.filter(function (m) { return m.targetIndex === keyIdx; })[0];
+      if (km) keySrc = km.sourceIndex;
+    }
+
+    Logger.log('--- ANAHTAR KOLON: "' + SYNC.KEY_TARGET_HEADER + '" ---');
+    Logger.log('  Hedefte : ' + (keyIdx === -1 ? 'BULUNAMADI' : 'bulundu (' + targetHeaders[keyIdx] + ')'));
+    Logger.log('  Kaynakta: ' + (keySrc === -1 ? 'BULUNAMADI' : 'bulundu (' + sourceHeaders[keySrc] + ')'));
+    if (keyIdx !== -1 && keySrc !== -1) {
+      Logger.log('  SONUC: Mukerrer korumasi AKTIF — ayni Bursa Ref iki kez eklenmez.');
+    } else {
+      Logger.log('  SONUC: Mukerrer korumasi PASIF — satir numarasi takibine dusulecek. ' +
+                 'Kaynaktaki anahtar kolonun adini SYNC.KEY_SOURCE_HEADER icine yazin.');
+    }
   } catch (e) {
     Logger.log('HATA: ' + e);
   }
