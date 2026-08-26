@@ -902,8 +902,11 @@ function syncNewRows(silent) {
     }
 
     if (SYNC.DRY_RUN) {
-      return finishSync_({ ok: true, added: 0, skipped: skipped, mapping: mapping, dryRun: true, warning: warning,
-                           message: 'DRY_RUN acik — ' + newRows.length + ' satir eklenecekti.' + (warning ? ' ' + warning : '') });
+      Logger.log('DRY_RUN — eklenecek kayitlar: ' + addedKeys.join(', '));
+      return finishSync_({ ok: true, added: 0, skipped: skipped, mapping: mapping, dryRun: true,
+                           warning: warning, keys: addedKeys,
+                           message: 'PROVA: ' + newRows.length + ' satir eklenecekti (' +
+                                    addedKeys.slice(0, 10).join(', ') + ').' + (warning ? ' ' + warning : '') });
     }
 
     targetSheet.getRange(targetSheet.getLastRow() + 1, 1, newRows.length, width).setValues(newRows);
@@ -952,6 +955,25 @@ function logSync_(ss, added, skipped, keys, mapping, useKey, errorMessage) {
 function runSyncFromDashboard() {
   const r = syncNewRows(true);
   return { ok: r.ok, added: r.added || 0, message: r.message || '', warning: r.warning || '' };
+}
+
+/**
+ * TEST YARDIMCISI — hiçbir şey yazmaz.
+ * SYNC.DRY_RUN ayarına dokunmadan bir prova çalıştırır; kaç satırın ve hangi
+ * Bursa Ref'lerin aktarılacağını Logs'a yazar.
+ */
+function syncDryRun() {
+  const previous = SYNC.DRY_RUN;
+  SYNC.DRY_RUN = true;
+  try {
+    const result = syncNewRows(true);
+    Logger.log(result.message);
+    if (result.skipped) Logger.log('Atlanan satir: ' + result.skipped +
+        ' (hedefte zaten var veya Bursa Ref bos).');
+    return result;
+  } finally {
+    SYNC.DRY_RUN = previous;
+  }
 }
 
 /** Senkronizasyonu 15 dakikada bir çalıştıran tetikleyiciyi kurar. */
