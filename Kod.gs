@@ -958,6 +958,58 @@ function runSyncFromDashboard() {
 }
 
 /**
+ * ============================================================================
+ *  TEK TIKLIK KURULUM TESTİ — hiçbir şey yazmaz, sadece rapor eder.
+ *  Fonksiyon seçicisinden bunu seçip Çalıştır demek yeterlidir.
+ *  Sırasıyla: bağlantı → kolon algılama → sync eşleşmesi → prova aktarım.
+ * ============================================================================
+ */
+function KURULUM_TESTI() {
+  Logger.log('==================================================');
+  Logger.log(' IS VALIDATION DASHBOARD — KURULUM TESTI');
+  Logger.log('==================================================');
+
+  // --- 1. Panel veri kaynağı ---
+  Logger.log('');
+  Logger.log('[1/4] PANEL VERI KAYNAGI');
+  const payload = getDashboardData(true);
+  if (!payload.ok) {
+    Logger.log('  HATA: ' + payload.error.message + ' — ' + payload.error.detail);
+    Logger.log('  Devam edilemiyor. CONFIG.SHEET_URL ve CONFIG.SHEET_NAME degerlerini kontrol edin.');
+    return;
+  }
+  Logger.log('  OK — ' + payload.meta.totalRows + ' satir okundu (' + payload.meta.sheetName + ').');
+  Logger.log('  Basliklar: ' + payload.meta.headers.join(' | '));
+
+  // --- 2. Kolon algılama ---
+  Logger.log('');
+  Logger.log('[2/4] PANEL KOLON ESLESMESI');
+  const map = payload.meta.columnMap;
+  Object.keys(map).forEach(function (field) {
+    Logger.log('  ' + (field + '                ').substring(0, 15) + ' : ' + (map[field] || '(bulunamadi)'));
+  });
+  Logger.log('  Yorum kolonlari: ' + ((payload.meta.commentHeaders || []).join(', ') || '(yok)'));
+
+  // --- 3. Sync eşleşmesi ---
+  Logger.log('');
+  Logger.log('[3/4] SALES TURNOVER -> IS VALIDATION ESLESMESI');
+  debugSyncMapping();
+
+  // --- 4. Prova aktarım ---
+  Logger.log('');
+  Logger.log('[4/4] PROVA AKTARIM (yazma yapilmaz)');
+  const dry = syncDryRun();
+  Logger.log('  ' + (dry && dry.message ? dry.message : 'Sonuc alinamadi.'));
+
+  Logger.log('');
+  Logger.log('==================================================');
+  Logger.log(' TEST BITTI. Sonuc dogruysa sirasiyla calistirin:');
+  Logger.log('   syncNewRows()        -> gercek aktarim');
+  Logger.log('   installSyncTrigger() -> 15 dakikalik otomatik tetikleyici');
+  Logger.log('==================================================');
+}
+
+/**
  * TEST YARDIMCISI — hiçbir şey yazmaz.
  * SYNC.DRY_RUN ayarına dokunmadan bir prova çalıştırır; kaç satırın ve hangi
  * Bursa Ref'lerin aktarılacağını Logs'a yazar.
